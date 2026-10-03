@@ -5,6 +5,7 @@
   "scripts": {
     "start": "node --use-system-ca --experimental-strip-types --env-file=.env apps/api/src/server.ts",
     "hermes:mcp": "node --experimental-strip-types apps/hermes/src/server.ts",
+    "tunnel:proxy": "node --experimental-strip-types apps/api/src/tunnel-proxy.ts",
     "test": "node --experimental-strip-types --test apps/api/test/*.test.ts",
     "dev:web": "vite --config apps/web/vite.config.ts --host 0.0.0.0",
     "dev:cloudflare": "npm run build:web && wrangler dev --config wrangler.worker.toml",
