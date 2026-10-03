@@ -321,7 +321,17 @@ export function App() {
     setBusy(true); setError(''); setNotice('');
     try {
       const result = register
-        ? await auth.auth.signUp({ email, password, options: { data: { name } } })
+        ? await auth.auth.signUp({
+            email,
+            password,
+            options: {
+              data: { name },
+              // Supabase falls back to its project Site URL when this is omitted.
+              // Use the current host so confirmation emails return to this deployment
+              // (and to localhost during local development).
+              emailRedirectTo: window.location.origin
+            }
+          })
         : await auth.auth.signInWithPassword({ email, password });
       if (result.error) throw result.error;
       if (register && !result.data.session) setNotice(lang === 'ar' ? 'تحقق من بريدك الإلكتروني لتفعيل الحساب.' : 'Check your email to confirm the account.');
