@@ -335,7 +335,15 @@ export function App() {
         : await auth.auth.signInWithPassword({ email, password });
       if (result.error) throw result.error;
       if (register && !result.data.session) setNotice(lang === 'ar' ? 'تحقق من بريدك الإلكتروني لتفعيل الحساب.' : 'Check your email to confirm the account.');
-    } catch (cause) { setError(cause instanceof Error ? cause.message : t.apiError); }
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : t.apiError;
+      const emailRateLimited = /rate.?limit|too many email/i.test(message);
+      setError(emailRateLimited
+        ? (lang === 'ar'
+          ? 'تم بلوغ حد إرسال رسائل التأكيد. انتظر قبل المحاولة مرة أخرى، ويجب إعداد SMTP مخصص لإرسال رسائل التسجيل بانتظام.'
+          : 'The email confirmation limit has been reached. Wait before retrying; this project needs custom SMTP for regular signup emails.')
+        : message);
+    }
     finally { setBusy(false); }
   }
 
