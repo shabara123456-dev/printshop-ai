@@ -1,0 +1,34 @@
+{
+  "name": "printshop-ai",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --use-system-ca --experimental-strip-types --env-file=.env apps/api/src/server.ts",
+    "hermes:mcp": "node --experimental-strip-types apps/hermes/src/server.ts",
+    "test": "node --experimental-strip-types --test apps/api/test/*.test.ts",
+    "dev:web": "vite --config apps/web/vite.config.ts --host 0.0.0.0",
+    "build:web": "vite build --config apps/web/vite.config.ts",
+    "typecheck:web": "tsc --noEmit -p apps/web/tsconfig.json",
+    "typecheck:api": "tsc --noEmit -p apps/api/tsconfig.json",
+    "build": "npm run build:web",
+    "typecheck": "npm run typecheck:web && npm run typecheck:api"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.0",
+    "@supabase/supabase-js": "^2.57.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.0.2",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.5"
+  },
+  "engines": {
+    "node": ">=22.17"
+  }
+}

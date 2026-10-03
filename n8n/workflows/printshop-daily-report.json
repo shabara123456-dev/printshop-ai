@@ -1,0 +1,108 @@
+[
+  {
+    "name": "PrintShop AI - Daily Operations Report",
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "days",
+                "daysInterval": 1,
+                "triggerAtHour": 18
+              }
+            ]
+          }
+        },
+        "id": "0fdba85b-8492-49f4-a131-3bf3c27aa0d5",
+        "name": "Every evening",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          240,
+          280
+        ]
+      },
+      {
+        "parameters": {
+          "url": "http://host.docker.internal:3000/api/integrations/daily-report",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "x-printshop-integration-key",
+                "value": "REPLACE_WITH_N8N_WEBHOOK_SECRET"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 15000
+          }
+        },
+        "id": "44fa6550-17fd-4920-a177-50153b7a2f87",
+        "name": "Fetch live shop report",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          500,
+          280
+        ],
+        "notes": "For hosted n8n, replace localhost with the publicly reachable PrintShop API URL. Replace the shared secret after import."
+      },
+      {
+        "parameters": {
+          "fromEmail": "printshop@example.com",
+          "toEmail": "={{ $json.to_email }}",
+          "subject": "PrintShop AI - Daily shop report",
+          "emailFormat": "text",
+          "text": "={{ JSON.stringify($json, null, 2) }}",
+          "options": {}
+        },
+        "id": "3b18657a-b638-46cb-a4e6-c087a3144ed2",
+        "name": "Email manager report",
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          760,
+          280
+        ],
+        "notes": "Connect an SMTP credential and set the sender address before activating. Set PRINTSHOP_MANAGER_EMAIL in the API environment."
+      }
+    ],
+    "connections": {
+      "Every evening": {
+        "main": [
+          [
+            {
+              "node": "Fetch live shop report",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch live shop report": {
+        "main": [
+          [
+            {
+              "node": "Email manager report",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "active": false,
+    "settings": {
+      "executionOrder": "v1",
+      "timezone": "Africa/Cairo"
+    },
+    "versionId": "6d031c54-b4b6-442a-89a5-436f79b499f1",
+    "meta": {
+      "templateCredsSetupCompleted": false
+    },
+    "tags": [],
+    "id": "7584e36f-0713-43c2-af0b-967fd51850f2"
+  }
+]

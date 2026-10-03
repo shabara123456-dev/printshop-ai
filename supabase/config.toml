@@ -1,0 +1,32 @@
+project_id = "printshop-ai"
+
+[api]
+enabled = true
+port = 55421
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 55422
+shadow_port = 55420
+major_version = 15
+
+[studio]
+port = 55423
+
+[inbucket]
+port = 55424
+smtp_port = 55425
+pop3_port = 55426
+
+[analytics]
+port = 55427
+vector_port = 55428
+
+[db.pooler]
+port = 55429
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]

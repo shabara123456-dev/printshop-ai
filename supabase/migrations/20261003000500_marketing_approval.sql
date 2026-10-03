@@ -1,0 +1,35 @@
+-- Persist an approved draft and its approval-queue record atomically.
+create or replace function public.set_marketing_asset_status(
+  p_asset_id uuid,
+  p_new_status text
+)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  asset_row public.marketing_assets%rowtype;
+begin
+  if p_new_status not in ('approved', 'rejected') then
+    raise exception 'invalid marketing asset status' using errcode = '22023';
+  end if;
+
+  select * into asset_row from public.marketing_assets where id = p_asset_id for update;
+  if not found then
+    raise exception 'marketing asset not found' using errcode = 'P0002';
+  end if;
+  if asset_row.status <> 'pending_approval' then
+    raise exception 'marketing asset is not pending approval' using errcode = '22023';
+  end if;
+
+  update public.marketing_assets set status = p_new_status where id = p_asset_id;
+  if p_new_status = 'approved' then
+    insert into public.marketing_posts (marketing_asset_id, platform, status)
+    values (p_asset_id, coalesce(asset_row.platform, 'general'), 'approved');
+  end if;
+end;
+$$;
+
+revoke all on function public.set_marketing_asset_status(uuid, text) from public, anon, authenticated;
+grant execute on function public.set_marketing_asset_status(uuid, text) to service_role;

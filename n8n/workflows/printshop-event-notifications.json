@@ -1,0 +1,67 @@
+[
+  {
+    "name": "PrintShop AI - Operational Event Notifications",
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "printshop-ai-events",
+          "authentication": "headerAuth",
+          "responseMode": "onReceived",
+          "options": {}
+        },
+        "id": "2a7f4a1c-6712-4c48-91d7-56ae252e2410",
+        "name": "Receive PrintShop event",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2.1,
+        "position": [
+          260,
+          300
+        ],
+        "webhookId": "printshop-ai-events"
+      },
+      {
+        "parameters": {
+          "fromEmail": "printshop@example.com",
+          "toEmail": "={{ $json.body.to_email }}",
+          "subject": "={{ $json.body.type === 'integration.test' ? 'PrintShop: n8n integration test (no action needed)' : $json.body.type === 'inventory.low_stock' ? 'PrintShop: low stock - ' + $json.body.name : $json.body.type === 'order.ready' ? 'PrintShop: order ready' : 'PrintShop: marketing draft approved' }}",
+          "emailFormat": "text",
+          "text": "={{ $json.body.type === 'integration.test' ? 'This is a test email for the PrintShop event-notification workflow. No business action is required.\n\n' + JSON.stringify($json.body, null, 2) : JSON.stringify($json.body, null, 2) }}",
+          "options": {}
+        },
+        "id": "2856fa98-2c7a-4809-8136-51ce1306428d",
+        "name": "Send operational email",
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          520,
+          300
+        ],
+        "notes": "The saved workflow routes to the event's to_email. The API sends low-stock and marketing events to the manager, and order-ready events to the customer. Use the integration.test event to verify delivery to the manager without sending a customer notification."
+      }
+    ],
+    "connections": {
+      "Receive PrintShop event": {
+        "main": [
+          [
+            {
+              "node": "Send operational email",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "active": false,
+    "settings": {
+      "executionOrder": "v1"
+    },
+    "versionId": "c6ed6480-bff6-4430-9bb7-f0fbb782aeb4",
+    "meta": {
+      "templateCredsSetupCompleted": false
+    },
+    "tags": [],
+    "id": "890917da-efd3-4dec-86f5-a8d314d4c1cc"
+  }
+]
