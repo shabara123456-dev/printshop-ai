@@ -5,7 +5,7 @@ import { BusinessAnalyticsPage } from './features/analytics/BusinessAnalyticsPag
 import { ProductManagementPage } from './features/products/ProductManagementPage.tsx';
 import { ProductArtwork, ProductImage } from './features/store/ProductArtwork.tsx';
 
-const apiBase = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000').replace(/\/$/, '');
+const apiBase = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? 'http://localhost:3000' : window.location.origin)).replace(/\/$/, '');
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
 const auth = supabaseUrl && publishableKey ? createClient(supabaseUrl, publishableKey) : null;

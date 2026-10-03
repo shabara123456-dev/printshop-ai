@@ -10,5 +10,5 @@
     "types": ["node"],
     "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
-  "include": ["src/**/*.ts", "../hermes/src/**/*.ts"]
+  "include": ["src/**/*.ts", "../hermes/src/**/*.ts", "../../cloudflare/**/*.ts"]
 }

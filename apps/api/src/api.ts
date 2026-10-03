@@ -62,7 +62,7 @@ export type AuthGateway = {
 export type HermesChatMessage = { role: 'user' | 'assistant'; content: string };
 export type HermesChatClient = { complete(messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>): Promise<{ content: string; model: string; usage?: { prompt_tokens?: number; completion_tokens?: number } }> };
 export type MarketingImageClient = { generate(prompt: string): Promise<{ data: Buffer; mimeType: string; model: string; estimatedCostUsd: number | null }> };
-type Dependencies = { gateway: AuthGateway; pricing: PricingRepository; allowedOrigins?: string[]; hermes?: HermesChatClient; marketingImage?: MarketingImageClient; hermesToolKey?: string; hermesWriteToolsEnabled?: boolean; hermesManagerUserId?: string; n8nWebhookBaseUrl?: string; n8nWebhookSecret?: string; managerEmail?: string };
+type Dependencies = { gateway: AuthGateway; pricing: PricingRepository; allowedOrigins?: string[]; allowSameOrigin?: boolean; hermes?: HermesChatClient; marketingImage?: MarketingImageClient; hermesToolKey?: string; hermesWriteToolsEnabled?: boolean; hermesManagerUserId?: string; n8nWebhookBaseUrl?: string; n8nWebhookSecret?: string; managerEmail?: string };
 type Actor = { id: string; role: Role };
 
 class UserAiRateLimiter {
@@ -253,7 +253,18 @@ export function createApiServer(deps: Dependencies): Server {
       status: response.statusCode, duration_ms: Date.now() - startedAt
     })));
     const origin = request.headers.origin;
-    if (origin && !allowed.has(origin)) {
+    const host = request.headers.host;
+    const forwardedProto = request.headers['x-forwarded-proto'];
+    const localHost = typeof host === 'string' && /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host);
+    const protocol = typeof forwardedProto === 'string' ? forwardedProto.split(',')[0].trim() : localHost ? 'http' : 'https';
+    let sameOrigin = false;
+    if (deps.allowSameOrigin && origin && host) {
+      try {
+        const parsedOrigin = new URL(origin);
+        sameOrigin = parsedOrigin.host === host && parsedOrigin.protocol === `${protocol}:`;
+      } catch { sameOrigin = false; }
+    }
+    if (origin && !allowed.has(origin) && !sameOrigin) {
       send(response, 403, { error: { code: 'ORIGIN_NOT_ALLOWED', message: 'This browser origin is not configured for the API.', request_id: requestId } });
       return;
     }

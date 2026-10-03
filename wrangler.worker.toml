@@ -1,0 +1,9 @@
+name = "printshop-ai"
+main = "cloudflare/worker.ts"
+compatibility_date = "2026-10-03"
+compatibility_flags = ["nodejs_compat", "enable_nodejs_http_server_modules", "nodejs_compat_populate_process_env"]
+
+[assets]
+directory = "./dist/web"
+binding = "ASSETS"
+run_worker_first = ["/api/*", "/health"]
