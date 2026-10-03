@@ -10,6 +10,12 @@ For a quick demo, open **Store**, choose a product, configure its available opti
 
 The public staging deployment does not process online payments or publish to social accounts. Hermes and n8n are configured for local development and are not connected as cloud services to this public Worker. The catalog uses original product illustrations rather than photographs of physical products.
 
+## Who it serves and how impact is measured
+
+The customer storefront handles product discovery, configuration, approved-rule quotes, design requests, and order tracking. The manager workspace handles orders, inventory, production, reporting, marketing drafts, and a Hermes operations chat in the local setup. The hosted Worker currently exposes the storefront and backend; its Hermes chat is not configured as a remote service, and customers do not have a separate natural-language agent yet.
+
+The intended time savings are fewer manual quote lookups, inventory checks, and report-preparation steps. Supported routine data questions use deterministic backend queries instead of an LLM call, which avoids model cost for those requests. The project does not yet have a real shop baseline or measured hours/cash/revenue saved; those should be measured in a pilot using quote turnaround time, manager hours spent on reporting and stock checks, order conversion, and AI token usage/latency. Do not present a projected value as a measured result.
+
 ## What works in the repository
 
 - Public INKORA storefront with API-driven product search, original product-specific concept illustrations, quote calculation/save, quote acceptance, order tracking, and bilingual English/Arabic UI with RTL support. The visible catalog is limited to products present in the currently deployed database.
