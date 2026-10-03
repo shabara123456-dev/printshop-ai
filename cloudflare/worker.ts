@@ -2,6 +2,7 @@ import { httpServerHandler } from 'cloudflare:node';
 import { createApiServer } from '../apps/api/src/api.ts';
 import { SupabaseGateway } from '../apps/api/src/supabase.ts';
 import { AiHordeMarketingImageClient } from '../apps/api/src/ai-horde-image-client.ts';
+import { HermesRemoteHttpClient } from '../apps/api/src/hermes-http-client.ts';
 
 let handleNodeApi: ReturnType<typeof httpServerHandler> | undefined;
 
@@ -17,6 +18,11 @@ function getNodeApi(): ReturnType<typeof httpServerHandler> {
     gateway,
     pricing: gateway,
     allowSameOrigin: true,
+    // Use the authenticated hosted Hermes API when configured. It is intentionally
+    // absent until HERMES_BASE_URL and HERMES_API_KEY are set as Worker secrets.
+    hermes: process.env.HERMES_BASE_URL?.trim() && process.env.HERMES_API_KEY?.trim()
+      ? new HermesRemoteHttpClient()
+      : undefined,
     marketingImage: process.env.MARKETING_IMAGE_PROVIDER?.trim().toLowerCase() === 'off'
       ? undefined
       : new AiHordeMarketingImageClient(),

@@ -33,7 +33,11 @@ hermes mcp test printshop-ai
 
 For manager tools, configure Hermes' MCP server environment with the backend's `HERMES_TOOL_API_KEY` value as `PRINTSHOP_HERMES_TOOL_KEY`, then restart the Hermes gateway. Keep both secrets out of chat messages and source control. The API itself reads the local `.env`; Hermes MCP child processes receive their key through their MCP server configuration.
 
-The manager dashboard AI chat uses Hermes' local API server. Configure its `API_SERVER_ENABLED` and `API_SERVER_KEY` in Hermes' own environment, set the same key as `HERMES_API_KEY` in this project's ignored `.env`, and start the Hermes gateway. Set `HERMES_BASE_URL=http://127.0.0.1:8642` and `HERMES_MODEL=hermes-agent` in the backend `.env`. Restrict Hermes' `api_server` platform toolsets to the PrintShop MCP toolset for this integration; do not enable broad computer, terminal, or file tools for the web chat.
+The manager dashboard AI chat can connect to Hermes through its OpenAI-compatible API server. Configure `API_SERVER_ENABLED=true`, a strong `API_SERVER_KEY`, and `API_SERVER_HOST=0.0.0.0` on the Hermes host, then expose it only over HTTPS. Set `HERMES_BASE_URL` to the gateway origin (for example `https://hermes.example.com`) and `HERMES_API_KEY` to the same bearer key in the backend environment. Local development can use `http://127.0.0.1:8642`.
+
+**Security requirement:** Hermes' API server can expose powerful agent tools. Configure its `api_server` platform to use only the PrintShop MCP toolset, and disable terminal, file, browser, computer, and code execution tools before connecting it to a public app. The PrintShop MCP server must call the HTTPS PrintShop API and use a separate server-only `PRINTSHOP_HERMES_TOOL_KEY`. Keep both keys out of the frontend and chat. Do not expose the Hermes API directly to browsers; the app backend authenticates and proxies requests.
+
+The local Node API still uses the Hermes CLI with `--toolsets printshop-ai`. The Cloudflare Worker now uses the authenticated HTTP gateway mode when both `HERMES_BASE_URL` and `HERMES_API_KEY` are configured; until a public Hermes gateway is hosted and those secrets are set, the hosted manager chat returns the clear `HERMES_UNAVAILABLE` response. Hermes local CLI setup alone does not make Hermes available to the public website.
 
 Start the API in one PowerShell terminal:
 

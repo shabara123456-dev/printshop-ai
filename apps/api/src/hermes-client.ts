@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { HermesRemoteHttpClient } from './hermes-http-client.ts';
 import type { HermesChatClient, HermesChatMessage } from './api.ts';
 
 const execFileAsync = promisify(execFile);
@@ -23,8 +24,12 @@ export class HermesHttpClient implements HermesChatClient {
   private readonly command = process.env.HERMES_CLI_PATH?.trim() || (process.platform === 'win32' ? 'hermes.exe' : 'hermes');
   private readonly model = process.env.HERMES_MODEL?.trim() === 'hermes-agent' ? '' : process.env.HERMES_MODEL?.trim();
   private readonly provider = process.env.HERMES_PROVIDER?.trim();
+  private readonly baseUrl = process.env.HERMES_BASE_URL?.trim();
+  private readonly remote = this.baseUrl ? new HermesRemoteHttpClient() : undefined;
 
   async complete(messages: Array<HermesChatMessage | { role: 'system'; content: string }>) {
+    if (this.remote) return await this.remote.complete(messages);
+
     const args = [
       'chat', '-q', buildPrompt(messages), '-Q', '--format', 'stream-json',
       '--toolsets', 'printshop-ai', '--source', 'tool', '--run-budget', '45'
