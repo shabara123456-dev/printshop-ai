@@ -2,6 +2,14 @@
 
 An operating-system prototype and online print store for a fictional Egyptian printing studio. Supabase is the source of truth; Node.js enforces business rules; Hermes assists only with language tasks; n8n handles configured notifications. The user interface in this repository is a custom React/Vite app, not a Lovable project.
 
+## Live demo
+
+Open the public staging site from any device: **[printshop-ai.shabara123456.workers.dev](https://printshop-ai.shabara123456.workers.dev/)**. The catalog and quote calculator are available without signing in. Account confirmation redirects to the hosted site. Registration and delivery of a real confirmation email have not yet been end-to-end tested.
+
+For a quick demo, open **Store**, choose a product, configure its available options, and calculate a quote. The approved reference scenario is 1,000 waterproof vinyl stickers at 10×8 cm: EGP 2,100, or EGP 2,150 when shop design is selected. These demo price rules are fictional shop settings, not a real printer's offer. The manager dashboard requires a provisioned manager account.
+
+The public staging deployment does not process online payments or publish to social accounts. Hermes and n8n are configured for local development and are not connected as cloud services to this public Worker. The catalog uses original product illustrations rather than photographs of physical products.
+
 ## What works in the repository
 
 - Public INKORA storefront with API-driven product search, original product-specific concept illustrations, quote calculation/save, quote acceptance, order tracking, and bilingual English/Arabic UI with RTL support. The visible catalog is limited to products present in the currently deployed database.
