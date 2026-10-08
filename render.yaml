@@ -6,7 +6,6 @@ services:
     dockerfilePath: ./deploy/n8n/Dockerfile
     dockerContext: ./
     healthCheckPath: /healthz
-    maxShutdownDelaySeconds: 90
     initialDeployHook: /opt/inkora/import-workflows.sh
     envVars:
       - key: NODE_ENV
@@ -62,7 +61,6 @@ services:
     dockerContext: ./deploy/hermes
     dockerCommand: gateway run --quiet
     healthCheckPath: /health
-    maxShutdownDelaySeconds: 90
     envVars:
       - key: HERMES_HOME
         value: /var/lib/inkora-hermes
