@@ -2,6 +2,7 @@ FROM ghcr.io/n8n-io/n8n:2.42.5
 
 COPY --chmod=0755 deploy/n8n/start.sh /opt/inkora/start.sh
 COPY --chmod=0755 deploy/n8n/import-workflows.sh /opt/inkora/import-workflows.sh
+COPY deploy/n8n/supabase-ca.crt /opt/inkora/supabase-ca.crt
 COPY n8n/workflows /opt/inkora/workflows
 
 ENTRYPOINT ["/bin/sh", "/opt/inkora/start.sh"]

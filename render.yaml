@@ -30,6 +30,9 @@ services:
         value: inkora_n8n
       - key: DB_POSTGRESDB_SSL_ENABLED
         value: "true"
+      # Trust Supabase's database CA instead of disabling TLS certificate checks.
+      - key: DB_POSTGRESDB_SSL_CA_FILE
+        value: /opt/inkora/supabase-ca.crt
       - key: DB_POSTGRESDB_POOL_SIZE
         value: "2"
       - key: N8N_ENCRYPTION_KEY
@@ -59,7 +62,9 @@ services:
     plan: free
     dockerfilePath: ./deploy/hermes/Dockerfile
     dockerContext: ./deploy/hermes
-    dockerCommand: gateway run
+    # Render must observe Hermes as the foreground process and capture startup
+    # diagnostics/exit codes; Render itself restarts failed web-service instances.
+    dockerCommand: gateway run --no-supervise
     healthCheckPath: /health
     envVars:
       - key: HERMES_HOME

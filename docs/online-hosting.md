@@ -50,6 +50,8 @@ For the n8n Supabase variables, open Supabase **Connect** and choose the shared 
 - `DB_POSTGRESDB_USER`: the exact session-pooler username, commonly `postgres.<project-ref>`.
 - `DB_POSTGRESDB_PASSWORD`: the Supabase database password.
 
+The n8n image includes Supabase's public database root CA at `/opt/inkora/supabase-ca.crt` and sets `DB_POSTGRESDB_SSL_CA_FILE` to that path. Keep `DB_POSTGRESDB_SSL_ENABLED=true` and certificate verification enabled; do not work around certificate errors by disabling TLS verification.
+
 Never put these values in Git, the browser frontend, or this chat. The n8n account should use only the `inkora_n8n` schema; the supplied Supabase database role is still privileged, so keep it exclusively in Render's server-side secrets.
 
 For Hermes:
