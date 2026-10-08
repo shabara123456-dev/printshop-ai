@@ -59,13 +59,13 @@ services:
     plan: free
     dockerfilePath: ./deploy/hermes/Dockerfile
     dockerContext: ./deploy/hermes
-    dockerCommand: gateway run --quiet
+    dockerCommand: gateway run
     healthCheckPath: /health
     envVars:
       - key: HERMES_HOME
-        value: /var/lib/inkora-hermes
+        value: /opt/data
       - key: HERMES_WRITE_SAFE_ROOT
-        value: /var/lib/inkora-hermes
+        value: /opt/data
       - key: API_SERVER_MODEL_NAME
         value: inkora-hermes
       - key: API_SERVER_ENABLED

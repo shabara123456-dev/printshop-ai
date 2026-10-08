@@ -1,8 +1,10 @@
 #!/command/with-contenv sh
 set -eu
 
-config="${HERMES_HOME:-/var/lib/inkora-hermes}/config.yaml"
-marker="${HERMES_HOME:-/var/lib/inkora-hermes}/.inkora-config-initialized"
+data_home="${HERMES_HOME:-/opt/data}"
+mkdir -p "$data_home"
+config="$data_home/config.yaml"
+marker="$data_home/.inkora-config-initialized"
 if [ ! -f "$marker" ]; then
 cat > "$config" <<'YAML'
 model:
