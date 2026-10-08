@@ -2,15 +2,12 @@ services:
   - type: web
     name: inkora-n8n
     runtime: docker
-    plan: 1c-2g
+    plan: free
     dockerfilePath: ./deploy/n8n/Dockerfile
     dockerContext: ./
     healthCheckPath: /healthz
     maxShutdownDelaySeconds: 90
-    disk:
-      name: n8n-data
-      mountPath: /home/node/.n8n
-      sizeGB: 5
+    initialDeployHook: /opt/inkora/import-workflows.sh
     envVars:
       - key: NODE_ENV
         value: production
@@ -18,6 +15,24 @@ services:
         value: Africa/Cairo
       - key: TZ
         value: Africa/Cairo
+      - key: DB_TYPE
+        value: postgresdb
+      - key: DB_POSTGRESDB_HOST
+        sync: false
+      - key: DB_POSTGRESDB_PORT
+        value: "5432"
+      - key: DB_POSTGRESDB_DATABASE
+        value: postgres
+      - key: DB_POSTGRESDB_USER
+        sync: false
+      - key: DB_POSTGRESDB_PASSWORD
+        sync: false
+      - key: DB_POSTGRESDB_SCHEMA
+        value: inkora_n8n
+      - key: DB_POSTGRESDB_SSL_ENABLED
+        value: "true"
+      - key: DB_POSTGRESDB_POOL_SIZE
+        value: "2"
       - key: N8N_ENCRYPTION_KEY
         generateValue: true
       - key: N8N_RUNNERS_ENABLED
@@ -35,23 +50,19 @@ services:
       - key: N8N_BLOCK_ENV_ACCESS_IN_NODE
         value: "true"
       - key: N8N_DEFAULT_BINARY_DATA_MODE
-        value: filesystem
+        value: database
       - key: INKORA_API_BASE_URL
         value: https://printshop-ai.shabara123456.workers.dev
 
   - type: web
     name: inkora-hermes
     runtime: docker
-    plan: 1c-2g
+    plan: free
     dockerfilePath: ./deploy/hermes/Dockerfile
     dockerContext: ./deploy/hermes
     dockerCommand: gateway run --quiet
     healthCheckPath: /health
     maxShutdownDelaySeconds: 90
-    disk:
-      name: hermes-data
-      mountPath: /var/lib/inkora-hermes
-      sizeGB: 2
     envVars:
       - key: HERMES_HOME
         value: /var/lib/inkora-hermes

@@ -15,7 +15,7 @@ gateway:
     enabled: true
     host: 0.0.0.0
     port: 10000
-    max_concurrent_runs: 2
+    max_concurrent_runs: 1
   allow_all_users: false
 
 platform_toolsets:
