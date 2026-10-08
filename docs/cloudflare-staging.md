@@ -2,6 +2,8 @@
 
 One Cloudflare Worker serves the Vite storefront as static assets and routes `/api/*` plus `/health` to the existing Node API through Cloudflare's Node HTTP compatibility layer. This keeps the customer site and API on one public hostname, with Supabase as the source of truth. The GitHub repository remains private.
 
+`GET /ready` checks Supabase and, when configured, probes Hermes and n8n through the restricted tunnel health endpoints. A `reachable` result means the service endpoint responds; it does not verify that an n8n workflow is active, has credentials, or can send email.
+
 ## Connect the private GitHub repository
 
 In Cloudflare Dashboard, open **Workers & Pages → Create application → Get started → Import a repository**. Connect GitHub, authorize access to the private repository `shabara123456-dev/printshop-ai`, and configure:
@@ -32,7 +34,7 @@ In **Settings → Variables & Secrets**, add these to the production environment
 | `SUPABASE_PUBLISHABLE_KEY` | No | Supabase auth verification key |
 | `SUPABASE_SECRET_KEY` | **Yes** | Server-only Supabase key used by the API |
 | `MARKETING_IMAGE_PROVIDER` | No | `ai_horde` enables community image generation; `off` disables it |
-| `HERMES_WRITE_TOOLS_ENABLED` | No | Keep `false` for public staging |
+| `HERMES_WRITE_TOOLS_ENABLED` | No | `true` enables only the configured manager’s allowlisted, audited Hermes proposals; each mutation still requires the exact confirmation phrase and action ID. Keep false if that approval flow is not wanted. |
 | `HERMES_BASE_URL` | **Yes** | Temporary HTTPS tunnel URL ending in `/hermes` |
 | `HERMES_API_KEY` | **Yes** | Local Hermes API bearer key |
 | `N8N_WEBHOOK_BASE_URL` | **Yes** | Temporary HTTPS tunnel URL ending in `/n8n` |

@@ -1,0 +1,78 @@
+.product-admin-forms {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.product-admin-disclosure {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #292c32;
+  border-radius: 12px;
+  background: #12151a;
+}
+
+.product-admin-disclosure > summary {
+  display: grid;
+  grid-template-columns: 100px minmax(150px, 0.7fr) minmax(180px, 1fr) 18px;
+  align-items: center;
+  gap: 14px;
+  padding: 15px 18px;
+  color: #e9ebef;
+  cursor: pointer;
+  list-style: none;
+}
+
+.product-admin-disclosure > summary::-webkit-details-marker { display: none; }
+.product-admin-disclosure > summary::after { content: '+'; color: #7ca8ef; font-size: 18px; text-align: center; }
+.product-admin-disclosure[open] > summary::after { content: '−'; }
+.product-admin-disclosure > summary span { color: #7ca8ef; font-size: 9px; letter-spacing: .14em; }
+.product-admin-disclosure > summary strong { font-size: 13px; }
+.product-admin-disclosure > summary small { color: #a2a7b0; font-size: 11px; }
+.product-admin-disclosure > form { padding: 0 18px 18px; }
+.product-admin-disclosure .price-rule-form { grid-column: auto; }
+.variant-admin-details > summary { display: grid; gap: 4px; cursor: pointer; list-style: none; }
+.variant-admin-details > summary::-webkit-details-marker { display: none; }
+.variant-admin-details > summary::after { content: 'Show details +'; color: #7ca8ef; font-size: 9px; }
+.variant-admin-details[open] > summary::after { content: 'Hide details −'; }
+.variant-admin-details > summary > strong { font-size: 10px; color: #cdd5e1; }
+.variant-admin-details > summary > small { color: #a2a7b0; font-size: 10px; }
+.product-admin-form label small.subtext { display: block; margin-top: 5px; font-size: 10px; line-height: 1.5; }
+.capacity-editor { display: grid; grid-template-columns: minmax(150px, 220px) minmax(180px, 1fr) auto; align-items: end; gap: 10px; padding: 10px; border-radius: 8px; background: #171a1f; }
+.capacity-editor label { margin: 0; }
+.capacity-editor small { color: #a2a7b0; font-size: 10px; line-height: 1.5; }
+.capacity-editor input { margin-top: 6px; }
+.meta-box { display: grid; gap: 5px; }
+.variant-attributes-editor { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(170px, .7fr) auto; align-items: end; gap: 10px; padding: 10px; border: 1px solid #292d34; border-radius: 8px; background: #111419; }
+.variant-attributes-editor label { margin: 0; }
+.variant-attributes-editor small { color: #a2a7b0; font-size: 10px; line-height: 1.5; }
+.vertical-badge { width: fit-content; padding: 3px 8px; border: 1px solid #303744; border-radius: 999px; color: #b8c8e5; background: #151a22; font-size: 10px; }
+.meta-box > small:last-child { color: #a2a7b0; font-size: 10px; line-height: 1.45; }
+.order-workspace-note {
+  padding: 12px 15px;
+  border: 1px solid #292c32;
+  border-radius: 10px;
+  background: #12151a;
+  color: #aeb3bc;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+@media (max-width: 600px) {
+  .product-admin-disclosure > summary {
+    grid-template-columns: 1fr 18px;
+    gap: 5px 10px;
+  }
+  .product-admin-disclosure > summary span,
+  .product-admin-disclosure > summary small { grid-column: 1; }
+  .product-admin-disclosure > summary strong { grid-column: 1; grid-row: 2; }
+  .product-admin-disclosure > summary::after { grid-column: 2; grid-row: 1 / span 3; }
+  .capacity-editor { grid-template-columns: minmax(0, 1fr); }
+  .variant-attributes-editor { grid-template-columns: minmax(0, 1fr); }
+  .variant-admin-details > summary::after { content: 'Details +'; }
+  .variant-admin-details[open] > summary::after { content: 'Hide −'; }
+}
+.product-options-disclosure { grid-column:1 / -1; padding:12px; border:1px solid #292d34; border-radius:8px; background:#101215; }
+.product-options-disclosure summary { color:#cfd3db; cursor:pointer; font-size:11px; font-weight:600; }
+.product-options-form { display:grid; gap:12px; margin-top:12px; }
+.product-option-group-editor { display:grid; gap:10px; padding:12px; border:1px solid #272b31; border-radius:8px; }
+.product-option-value-editor { display:grid; gap:8px; padding:10px; border:1px solid #22262c; border-radius:7px; background:#0c0e10; }
+.product-option-group-actions { display:flex; justify-content:space-between; gap:10px; }

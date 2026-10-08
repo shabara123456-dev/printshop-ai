@@ -6,10 +6,14 @@ compatibility_flags = ["nodejs_compat", "enable_nodejs_http_server_modules", "no
 [vars]
 SUPABASE_URL = "https://sidynjvajtayparodmaq.supabase.co"
 SUPABASE_PUBLISHABLE_KEY = "sb_publishable_xOg6Kmyk_ndO4fC_0s-m0w_44HQqmlm"
+PRINTSHOP_API_URL = "https://printshop-ai.shabara123456.workers.dev"
 MARKETING_IMAGE_PROVIDER = "ai_horde"
-HERMES_WRITE_TOOLS_ENABLED = "false"
+HERMES_WRITE_TOOLS_ENABLED = "true"
 
 [assets]
 directory = "./dist/web"
 binding = "ASSETS"
-run_worker_first = ["/api/*", "/health"]
+run_worker_first = ["/api/*", "/health", "/ready", "/mcp"]
+
+[triggers]
+crons = ["* * * * *"]

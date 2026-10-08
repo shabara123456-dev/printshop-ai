@@ -30,30 +30,37 @@ export function ProductArtwork({ category, label }: { category: string; label?: 
   </div>;
 }
 
-// Reference photos are from Unsplash and illustrate the product category; they are not shop jobs.
-const categoryPhotos: Record<string, string> = {
-  business_cards: 'https://images.unsplash.com/photo-1623305465231-d884ce752d59?auto=format&fit=crop&w=1000&q=82',
-  flyers: 'https://images.unsplash.com/photo-1667172306639-a60f67622ba0?auto=format&fit=crop&w=1000&q=82',
-  posters: 'https://images.unsplash.com/photo-1715059448930-9dff21725605?auto=format&fit=crop&w=1000&q=82',
-  banners: 'https://images.unsplash.com/photo-1715059448930-9dff21725605?auto=format&fit=crop&w=1000&q=82',
-  stickers: 'https://images.unsplash.com/photo-1543438407-2a26e00f178e?auto=format&fit=crop&w=1000&q=82',
-  invitations: 'https://images.unsplash.com/photo-1583068507822-b63c56e98ec7?auto=format&fit=crop&w=1000&q=82',
-  brochures: 'https://images.unsplash.com/photo-1667172306639-a60f67622ba0?auto=format&fit=crop&w=1000&q=82',
-  menus: 'https://images.unsplash.com/photo-1667172306639-a60f67622ba0?auto=format&fit=crop&w=1000&q=82',
-  certificates: 'https://images.unsplash.com/photo-1623305465231-d884ce752d59?auto=format&fit=crop&w=1000&q=82',
-  booklets: 'https://images.unsplash.com/photo-1771512420296-f439ac705a39?auto=format&fit=crop&w=1000&q=82',
-  notebooks: 'https://images.unsplash.com/photo-1775590766052-ee31110731f8?auto=format&fit=crop&w=1000&q=82',
-  calendars: 'https://images.unsplash.com/photo-1775590766052-ee31110731f8?auto=format&fit=crop&w=1000&q=82',
-  labels: 'https://images.unsplash.com/photo-1543438407-2a26e00f178e?auto=format&fit=crop&w=1000&q=82',
-  packaging: 'https://images.unsplash.com/photo-1548863227-3af567fc3b27?auto=format&fit=crop&w=1000&q=82',
-  apparel: 'https://images.unsplash.com/photo-1722310752951-4d459d28c678?auto=format&fit=crop&w=1000&q=82',
-  folders: 'https://images.unsplash.com/photo-1623305465231-d884ce752d59?auto=format&fit=crop&w=1000&q=82',
-  stationery: 'https://images.unsplash.com/photo-1775590766052-ee31110731f8?auto=format&fit=crop&w=1000&q=82',
-  gifts: 'https://images.unsplash.com/photo-1495121864268-11b119abeba0?auto=format&fit=crop&w=1000&q=82',
-  bags: 'https://images.unsplash.com/photo-1548863227-3af567fc3b27?auto=format&fit=crop&w=1000&q=82'
+// Free Unsplash reference photos, selected for the actual print product shown.
+// These are examples, not work produced by or owned by the shop.
+type ReferencePhoto = { id: string; source: string; description: string };
+const photo = (id: string, slug: string, description: string): ReferencePhoto => ({
+  id,
+  source: `https://unsplash.com/photos/${slug}`,
+  description
+});
+const categoryPhotos: Record<string, ReferencePhoto> = {
+  business_cards: photo('1623305463957-df17547327cb', 'two-blank-business-cards-sitting-on-top-of-each-other-XdlhXRH_UJw', 'Blank business cards'),
+  flyers: photo('1769893715447-8f12c382e49c', 'folded-brochures-and-pamphlets-stacked-together-FaIwAogR7eE', 'Printed flyers and folded brochures'),
+  posters: photo('1534267933751-06d5943f27f5', 'posters-mounted-on-building-wall-during-daytime-QsDPS-Qnkwg', 'Posters displayed on a wall'),
+  banners: photo('1762325393954-5300a6e35f5b', 'a-blank-white-rectangular-sign-leaning-forward-0GywLiHMUTU', 'Vertical display banner mockup'),
+  stickers: photo('1669292618188-7446a2cc1f07', 'a-group-of-drawings-on-a-table-LYZ66xHoi-s', 'Printed sticker sheet'),
+  invitations: photo('1742581659446-6260fc707e7d', 'wedding-invitations-and-stationery-displayed-with-greenery-5ZribvTyQVQ', 'Wedding invitation and stationery set'),
+  brochures: photo('1769893715447-8f12c382e49c', 'folded-brochures-and-pamphlets-stacked-together-FaIwAogR7eE', 'Folded brochures and pamphlets'),
+  menus: photo('1545105090-b8a3fe3f87f2', 'menu-book-DKsXPBMJkkE', 'Printed menu book'),
+  certificates: photo('1578130577682-5bde6205fb1d', 'certificate-paper-on-shelf-FnAsN2Og-vk', 'Certificate paper'),
+  booklets: photo('1545105090-b8a3fe3f87f2', 'menu-book-DKsXPBMJkkE', 'Printed bound booklet example'),
+  notebooks: photo('1518082091569-ccaa5d0c845a', 'calendar-notebook-with-highlighter-pens-BJ6w75UwMf8', 'Notebook and stationery flat lay'),
+  calendars: photo('1518082091569-ccaa5d0c845a', 'calendar-notebook-with-highlighter-pens-BJ6w75UwMf8', 'Calendar planning notebook'),
+  labels: photo('1669292618143-8e0337388811', 'a-box-with-a-label-on-it-E_dvFxEX9XU', 'Printed label on product packaging'),
+  packaging: photo('1669292618143-8e0337388811', 'a-box-with-a-label-on-it-E_dvFxEX9XU', 'Printed packaging with a product label'),
+  apparel: photo('1517309561013-16f6e4020305', 'white-and-black-we-do-it-with-style-printed-shirt-HToDV_gYh1A', 'Printed T-shirt'),
+  folders: photo('1623305463957-df17547327cb', 'two-blank-business-cards-sitting-on-top-of-each-other-XdlhXRH_UJw', 'Cardstock reference for presentation folders'),
+  stationery: photo('1518082091569-ccaa5d0c845a', 'calendar-notebook-with-highlighter-pens-BJ6w75UwMf8', 'Notebook and office stationery'),
+  gifts: photo('1542556398-3c9a71885fab', 'white-fill-me-up-with-tea-printed-mug-8jQ9zzTiyAw', 'Printed ceramic mug'),
+  bags: photo('1780480999319-ba6a502ed72c', 'canvas-tote-bag-with-keep-shining-text-and-colorful-designs-XjEMVyeqpeA', 'Printed canvas tote bag')
 };
 
 export function ProductImage({ category, label }: { category: string; label: string }) {
-  const photo = categoryPhotos[category];
-  return <div className="product-image-frame"><ProductArtwork category={category} label={label} />{photo && <><img className="product-photo" src={photo} alt={`${label} sample reference photo`} loading="lazy" onError={(event) => { event.currentTarget.style.display = 'none'; }} /><span className="product-photo-note">REFERENCE PHOTO</span></>}</div>;
+  const reference = categoryPhotos[category];
+  return <div className="product-image-frame"><ProductArtwork category={category} label={label} />{reference && <><img className="product-photo" src={`https://images.unsplash.com/photo-${reference.id}?auto=format&fit=crop&w=1000&q=82`} alt={`${reference.description} — reference example for ${label}`} loading="lazy" onError={(event) => { event.currentTarget.style.display = 'none'; }} /><span className="product-photo-note" title={`Unsplash photo source: ${reference.source}`}>UNSPLASH REFERENCE</span></>}</div>;
 }

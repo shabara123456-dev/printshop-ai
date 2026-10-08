@@ -1,0 +1,13 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+node_modules
+**/node_modules
+dist
+coverage
+.runtime-logs
+n8n/.env
+n8n/backups
+supabase/.temp

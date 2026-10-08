@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { calculateQuote, type PriceRule, type PricingRepository, type Variant } from '../src/pricing.ts';
+import { calculateQuote, type PriceRule, type PricingRepository, type ProductOptionGroup, type Variant } from '../src/pricing.ts';
 import { AppError } from '../src/errors.ts';
 import { createApiServer, type AuthGateway } from '../src/api.ts';
 
@@ -34,6 +34,32 @@ test('calculates base, fixed/setup, selected service fees, and tax in cents', as
   assert.equal(quote.breakdown[0].options.design_fee, '50.00');
 });
 
+test('generic product options require valid configured values and add server-priced per-unit and one-time surcharges', async () => {
+  const optionVariant: Variant = { ...variant, product_id: 'product-1' };
+  const options: ProductOptionGroup[] = [
+    { key: 'finish', label_en: 'Finish', label_ar: 'التشطيب', required: true, values: [
+      { key: 'matte', label_en: 'Matte', label_ar: 'مطفي', adjustment_type: 'per_unit', price_adjustment: '0.00' },
+      { key: 'gloss', label_en: 'Gloss', label_ar: 'لامع', adjustment_type: 'per_unit', price_adjustment: '2.00' }
+    ] },
+    { key: 'packaging', label_en: 'Packaging', label_ar: 'التغليف', required: false, values: [
+      { key: 'gift_box', label_en: 'Gift box', label_ar: 'علبة هدايا', adjustment_type: 'one_time', price_adjustment: '5.00' }
+    ] }
+  ];
+  const optionRepository: PricingRepository = {
+    async getVariantBySku(sku) { return sku === optionVariant.sku ? optionVariant : null; },
+    async getPriceRules() { return [{ ...rule, unit_price: '100.00', fixed_fee: '0', setup_fee: '0', design_fee: '0', installation_fee: '0', delivery_fee: '0', tax_rate: '0.10000' }]; },
+    async getProductOptionGroups(productId) { assert.equal(productId, optionVariant.product_id); return options; }
+  };
+  const quote = await calculateQuote([{ variant_sku: optionVariant.sku, quantity: 3, custom_options: { finish: 'gloss', packaging: 'gift_box' } }], optionRepository, new Date('2026-10-02T00:00:00Z'));
+  assert.equal(quote.subtotal, '311.00');
+  assert.equal(quote.tax, '31.10');
+  assert.equal(quote.total, '342.10');
+  assert.equal(quote.breakdown[0].breakdown.option_surcharge, '11.00');
+  assert.deepEqual((quote.breakdown[0].options.custom_options as Record<string, { value: string }>), { finish: { value: 'gloss', label_en: 'Gloss', label_ar: 'لامع', adjustment_type: 'per_unit', price_adjustment: '2.00' }, packaging: { value: 'gift_box', label_en: 'Gift box', label_ar: 'علبة هدايا', adjustment_type: 'one_time', price_adjustment: '5.00' } });
+  await assert.rejects(calculateQuote([{ variant_sku: optionVariant.sku, quantity: 1 }], optionRepository), (error: unknown) => error instanceof AppError && error.code === 'OPTION_REQUIRED');
+  await assert.rejects(calculateQuote([{ variant_sku: optionVariant.sku, quantity: 1, custom_options: { finish: 'customer_invented', packaging: 'gift_box' } }], optionRepository), (error: unknown) => error instanceof AppError && error.code === 'INVALID_OPTION');
+});
+
 test('selects the most specific active material and finishing rule', async () => {
   const specific: PriceRule = {
     ...rule, id: 'rule-specific', material: 'waterproof vinyl', finishing: 'gloss', unit_price: '2.25'
@@ -49,6 +75,30 @@ test('rejects missing pricing instead of using market references', async () => {
   await assert.rejects(
     calculateQuote([{ variant_sku: variant.sku, quantity: 20 }], repository([]), new Date('2026-10-02T00:00:00Z')),
     (error: unknown) => error instanceof AppError && error.code === 'PRICE_RULE_NOT_FOUND' && error.status === 422
+  );
+});
+
+test('rejects manager demo catalog prices before consulting quote rules', async () => {
+  const sample = { ...variant, demo_only: true };
+  const sampleRepository: PricingRepository = {
+    async getVariantBySku(sku) { return sku === sample.sku ? sample : null; },
+    async getPriceRules() { return [rule]; }
+  };
+  await assert.rejects(
+    calculateQuote([{ variant_sku: sample.sku, quantity: 10 }], sampleRepository),
+    (error: unknown) => error instanceof AppError && error.code === 'DEMO_ONLY_PRODUCT' && error.status === 409
+  );
+});
+
+test('rejects quotes for variants whose configured production availability is zero', async () => {
+  const unavailable = { ...variant, available_quantity: 0 };
+  const noCapacity: PricingRepository = {
+    async getVariantBySku(sku) { return sku === unavailable.sku ? unavailable : null; },
+    async getPriceRules() { return [rule]; }
+  };
+  await assert.rejects(
+    calculateQuote([{ variant_sku: variant.sku, quantity: 1 }], noCapacity, new Date('2026-10-02T00:00:00Z')),
+    (error: unknown) => error instanceof AppError && error.code === 'PRODUCTION_CAPACITY_INSUFFICIENT' && error.status === 409
   );
 });
 
@@ -277,6 +327,7 @@ test('product creation is manager-only and preserves price-rule separation', asy
   const gateway = {
     async authenticate(token: string) { return { id: token }; },
     async getRole(userId: string) { return userId === 'manager-token' ? 'manager' as const : 'customer' as const; },
+    async listVerticals() { return [{ vertical_key: 'printing', active: true }, { vertical_key: 'electronics', active: true }]; },
     async createProduct(input: Record<string, unknown>) { createCalls++; savedProduct = input; return 'product-id'; }
   } as unknown as AuthGateway;
   const server = createApiServer({ gateway, pricing: repository() });
@@ -286,7 +337,7 @@ test('product creation is manager-only and preserves price-rule separation', asy
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Test server did not bind a TCP port.');
   const endpoint = `http://127.0.0.1:${address.port}/api/manager/products`;
-  const product = { sku: 'REAL-SHOP-FLYER', name: 'Flyer', category: 'flyers', base_unit: 'piece', description: 'Shop product' };
+  const product = { sku: 'REAL-SHOP-FLYER', name: 'Flyer', category: 'flyers', base_unit: 'piece', description: 'Shop product', vertical_key: 'electronics', attributes: '{"warranty_months":12,"specifications":{"storage_gb":256}}' };
   const denied = await fetch(endpoint, { method: 'POST', headers: { authorization: 'Bearer customer-token', 'content-type': 'application/json' }, body: JSON.stringify(product) });
   assert.equal(denied.status, 403);
   assert.equal(createCalls, 0);
@@ -295,7 +346,47 @@ test('product creation is manager-only and preserves price-rule separation', asy
   assert.equal(createCalls, 1);
   assert.equal(savedProduct?.sku, 'REAL-SHOP-FLYER');
   assert.equal(savedProduct?.active, true);
+  assert.equal(savedProduct?.vertical_key, 'electronics');
+  assert.deepEqual(savedProduct?.attributes, { warranty_months: 12, specifications: { storage_gb: 256 } });
   assert.equal(savedProduct?.unit_price, undefined);
+  const invalidVertical = await fetch(endpoint, { method: 'POST', headers: { authorization: 'Bearer manager-token', 'content-type': 'application/json' }, body: JSON.stringify({ ...product, sku: 'BAD-VERTICAL', vertical_key: 'unknown' }) });
+  assert.equal(invalidVertical.status, 422);
+  const invalidAttributes = await fetch(endpoint, { method: 'POST', headers: { authorization: 'Bearer manager-token', 'content-type': 'application/json' }, body: JSON.stringify({ ...product, sku: 'BAD-ATTRIBUTES', attributes: '{not json' }) });
+  assert.equal(invalidAttributes.status, 400);
+  assert.equal(createCalls, 1);
+});
+
+test('active store verticals are publicly readable from the database registry', async (context) => {
+  const gateway = {
+    async listVerticals() { return [{ vertical_key: 'printing', label_en: 'Printing', label_ar: 'الطباعة', active: true, capabilities: { requires_production: true } }]; }
+  } as unknown as AuthGateway;
+  const server = createApiServer({ gateway, pricing: repository() });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  context.after(() => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Test server did not bind a TCP port.');
+  const response = await fetch(`http://127.0.0.1:${address.port}/api/verticals`);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json() as { verticals: Array<{ vertical_key: string }> }).verticals[0].vertical_key, 'printing');
+});
+
+test('Hermes can read the active vertical registry only through its server key', async (context) => {
+  const gateway = {
+    async listVerticals() { return [{ vertical_key: 'printing', active: true }, { vertical_key: 'clothing', active: true }]; }
+  } as unknown as AuthGateway;
+  const server = createApiServer({ gateway, pricing: repository(), hermesToolKey: 'private-tool-key' });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  context.after(() => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Test server did not bind a TCP port.');
+  const endpoint = `http://127.0.0.1:${address.port}/api/hermes/tools`;
+  const body = JSON.stringify({ name: 'list_store_verticals', arguments: {} });
+  assert.equal((await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body })).status, 401);
+  const response = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json', 'x-printshop-hermes-key': 'private-tool-key' }, body });
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json() as { verticals: Array<{ vertical_key: string }> }).verticals.map((vertical) => vertical.vertical_key), ['printing', 'clothing']);
 });
 
 test('manager product catalog includes inactive records and rejects customer access', async (context) => {
@@ -523,8 +614,9 @@ test('manager can cancel an order through the guarded order state transition', a
   assert.deepEqual(transitions, [['30000000-0000-4000-8000-000000000001', 'cancelled']]);
 });
 
-test('Hermes manager writes wait for a bound next-turn approval and create an audit event', async (context) => {
+test('Hermes manager approvals persist across API instances and execute the exact proposal once', async (context) => {
   const changes: Array<Record<string, unknown>> = [];
+  const proposals = new Map<string, { managerId: string; action: string; args: Record<string, unknown>; status: string }>();
   const managerId = '30000000-0000-4000-8000-000000000099';
   const productId = '30000000-0000-4000-8000-000000000012';
   let toolUrl = '';
@@ -532,20 +624,112 @@ test('Hermes manager writes wait for a bound next-turn approval and create an au
   const gateway = {
     async authenticate(token: string) { if (token !== 'manager-token') throw new AppError('UNAUTHORIZED', 401, 'Unauthorized'); return { id: managerId }; },
     async getRole(id: string) { assert.equal(id, managerId); return 'manager' as const; },
+    async listVerticals() { return [{ vertical_key: 'printing', active: true }, { vertical_key: 'electronics', active: true }]; },
     async recordAiRun() {},
+    async createHermesActionProposal(input: { id: string; managerId: string; action: string; arguments: Record<string, unknown> }) {
+      proposals.set(input.id, { managerId: input.managerId, action: input.action, args: input.arguments, status: 'pending' });
+      return new Date(Date.now() + 600_000).toISOString();
+    },
+    async approveHermesActionProposal(id: string, userId: string) {
+      const proposal = proposals.get(id);
+      if (!proposal || proposal.managerId !== userId || proposal.status !== 'pending') return false;
+      proposal.status = 'approved'; return true;
+    },
+    async claimHermesActionProposal(input: { id: string; managerId: string; action: string; arguments: Record<string, unknown> }) {
+      const proposal = proposals.get(input.id);
+      if (!proposal || proposal.managerId !== input.managerId || proposal.action !== input.action || JSON.stringify(proposal.args) !== JSON.stringify(input.arguments) || proposal.status !== 'approved') return false;
+      proposal.status = 'executing'; return true;
+    },
+    async finishHermesActionProposal(input: { id: string; status: 'completed' | 'failed'; result: Record<string, unknown> | null }) {
+      const proposal = proposals.get(input.id);
+      assert.equal(proposal?.status, 'executing');
+      if (proposal) proposal.status = input.status;
+      changes.push({ type: 'proposal_result', ...input });
+    },
     async updateProduct(id: string, fields: Record<string, unknown>) { changes.push({ type: 'product', id, fields }); },
     async recordAuditLog(input: Record<string, unknown>) { changes.push({ type: 'audit', ...input }); }
   } as unknown as AuthGateway;
-  const server = createApiServer({
+  const serverOptions = {
     gateway, pricing: repository(), hermesToolKey: 'tool-secret', hermesWriteToolsEnabled: true, hermesManagerUserId: managerId,
     hermes: { async complete(messages) {
       const lastMessage = messages.at(-1)?.content ?? '';
       const confirmation = /I CONFIRM THIS CHANGE ([0-9a-f-]{36})/i.exec(lastMessage);
-      const args = { product_id: productId, active: false, reason: 'Manager asked to hide this listing',
+      const args = { product_id: productId, active: false, vertical_key: 'electronics', attributes: { warranty_months: 12 }, reason: 'Manager asked to update this listing',
         ...(confirmation ? { action_id: confirmation[1] } : {}) };
       const response = await fetch(toolUrl, { method: 'POST', headers: { 'content-type': 'application/json', 'x-printshop-hermes-key': 'tool-secret' }, body: JSON.stringify({ name: 'update_product_details', arguments: args }) });
       approvedResult = await response.json() as Record<string, unknown>;
       return { content: response.ok ? `Tool result: ${JSON.stringify(approvedResult)}` : 'The update was blocked by approval checks.', model: 'test-hermes' };
+    } }
+  };
+  const startServer = async () => {
+    const server = createApiServer(serverOptions);
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Test server did not bind a TCP port.');
+    context.after(() => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())));
+    return `http://127.0.0.1:${address.port}`;
+  };
+  const baseOne = await startServer();
+  toolUrl = `${baseOne}/api/hermes/tools`;
+  const chat = (base: string, messages: Array<{ role: 'user' | 'assistant'; content: string }>) => fetch(`${base}/api/ai/chat`, {
+    method: 'POST', headers: { authorization: 'Bearer manager-token', 'content-type': 'application/json' }, body: JSON.stringify({ messages })
+  });
+  const first = await chat(baseOne, [{ role: 'user', content: 'Hide this product from the store.' }]);
+  assert.equal(first.status, 200);
+  assert.equal(approvedResult?.status, 'confirmation_required');
+  const actionId = String(approvedResult?.action_id);
+  assert.match(actionId, /^[0-9a-f-]{36}$/i);
+  assert.equal(changes.length, 0, 'proposal must not change the product');
+
+  const directToolAttempt = await fetch(toolUrl, { method: 'POST', headers: { 'content-type': 'application/json', 'x-printshop-hermes-key': 'tool-secret' },
+    body: JSON.stringify({ name: 'update_product_details', arguments: { product_id: productId, active: false, vertical_key: 'electronics', attributes: { warranty_months: 12 }, reason: 'Manager asked to update this listing', action_id: actionId } }) });
+  assert.equal(directToolAttempt.status, 409, 'an MCP call outside the authenticated confirmed chat must not execute');
+  assert.equal(changes.length, 0);
+
+  const baseTwo = await startServer();
+  toolUrl = `${baseTwo}/api/hermes/tools`;
+  const confirmed = await chat(baseTwo, [
+    { role: 'user', content: 'Hide this product from the store.' },
+    { role: 'assistant', content: `Proposed to hide ${productId}. Reply exactly: I CONFIRM THIS CHANGE ${actionId}` },
+    { role: 'user', content: `I CONFIRM THIS CHANGE ${actionId}` }
+  ]);
+  assert.equal(confirmed.status, 200);
+  assert.deepEqual(approvedResult, { product_id: productId, changes: { vertical_key: 'electronics', attributes: { warranty_months: 12 }, active: false }, audit_logged: true });
+  assert.equal(changes.length, 2);
+  assert.deepEqual(changes[0], { type: 'product', id: productId, fields: { vertical_key: 'electronics', attributes: { warranty_months: 12 }, active: false } });
+  assert.equal((changes[1] as Record<string, unknown>).status, 'completed');
+  assert.equal(proposals.get(actionId)?.status, 'completed');
+});
+
+test('Hermes product creation creates only a manager-approved inactive product draft', async (context) => {
+  const managerId = '30000000-0000-4000-8000-000000000099';
+  const proposals = new Map<string, { action: string; arguments: Record<string, unknown>; status: string }>();
+  let productCreations = 0;
+  let createdProduct: Record<string, unknown> | undefined;
+  let toolUrl = '';
+  const gateway = {
+    async authenticate(token: string) { assert.equal(token, 'manager-token'); return { id: managerId }; },
+    async getRole(id: string) { assert.equal(id, managerId); return 'manager' as const; },
+    async recordAiRun() {},
+    async listVerticals() { return [{ vertical_key: 'printing', active: true }, { vertical_key: 'clothing', active: true }]; },
+    async createHermesActionProposal(input: { id: string; action: string; arguments: Record<string, unknown> }) { proposals.set(input.id, { action: input.action, arguments: input.arguments, status: 'pending' }); return new Date(Date.now() + 600_000).toISOString(); },
+    async approveHermesActionProposal(id: string) { const proposal = proposals.get(id); if (!proposal || proposal.status !== 'pending') return false; proposal.status = 'approved'; return true; },
+    async claimHermesActionProposal(input: { id: string; action: string; arguments: Record<string, unknown> }) { const proposal = proposals.get(input.id); if (!proposal || proposal.status !== 'approved' || proposal.action !== input.action || JSON.stringify(proposal.arguments) !== JSON.stringify(input.arguments)) return false; proposal.status = 'executing'; return true; },
+    async finishHermesActionProposal(input: { id: string; status: string }) { const proposal = proposals.get(input.id); if (proposal) proposal.status = input.status; },
+    async createProduct(input: Record<string, unknown>) { productCreations++; createdProduct = input; return 'new-product-id'; }
+  } as unknown as AuthGateway;
+  const server = createApiServer({ gateway, pricing: repository(), hermesToolKey: 'tool-secret', hermesWriteToolsEnabled: true, hermesManagerUserId: managerId,
+    hermes: { async complete(messages) {
+      const last = messages.at(-1)?.content ?? '';
+      const id = /I CONFIRM THIS CHANGE ([0-9a-f-]{36})/i.exec(last)?.[1];
+      const response = await fetch(toolUrl, { method: 'POST', headers: { 'content-type': 'application/json', 'x-printshop-hermes-key': 'tool-secret' },
+        body: JSON.stringify({ name: 'create_product_draft', arguments: {
+          sku: 'INK-TSHIRT-01', name: 'Printed T-shirt', category: 'Apparel', base_unit: 'piece', vertical_key: 'clothing',
+          description: 'Cotton shirt with custom print', attributes: {}, requires_design: false, requires_size: true,
+          reason: 'Manager asked to prepare a clothing item', ...(id ? { action_id: id } : {})
+        } }) });
+      return { content: response.ok ? JSON.stringify(await response.json()) : 'The product draft action was blocked.', model: 'test-hermes' };
     } }
   });
   server.listen(0, '127.0.0.1');
@@ -555,32 +739,96 @@ test('Hermes manager writes wait for a bound next-turn approval and create an au
   if (!address || typeof address === 'string') throw new Error('Test server did not bind a TCP port.');
   const base = `http://127.0.0.1:${address.port}`;
   toolUrl = `${base}/api/hermes/tools`;
-  const chat = (messages: Array<{ role: 'user' | 'assistant'; content: string }>) => fetch(`${base}/api/ai/chat`, {
-    method: 'POST', headers: { authorization: 'Bearer manager-token', 'content-type': 'application/json' }, body: JSON.stringify({ messages })
+  const invoke = (verticalKey: string) => fetch(`http://127.0.0.1:${address.port}/api/hermes/tools`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-printshop-hermes-key': 'tool-secret' },
+    body: JSON.stringify({ name: 'create_product_draft', arguments: {
+      sku: 'INK-TSHIRT-01', name: 'Printed T-shirt', category: 'Apparel', base_unit: 'piece', vertical_key: verticalKey,
+      description: 'Cotton shirt with custom print', requires_design: false, requires_size: true, reason: 'Manager asked to prepare a clothing item'
+    } })
   });
-  const first = await chat([{ role: 'user', content: 'Hide this product from the store.' }]);
-  assert.equal(first.status, 200);
-  assert.equal(approvedResult?.status, 'confirmation_required');
-  const actionId = String(approvedResult?.action_id);
-  assert.match(actionId, /^[0-9a-f-]{36}$/i);
-  assert.equal(changes.length, 0, 'proposal must not change the product');
-
-  const directToolAttempt = await fetch(toolUrl, { method: 'POST', headers: { 'content-type': 'application/json', 'x-printshop-hermes-key': 'tool-secret' },
-    body: JSON.stringify({ name: 'update_product_details', arguments: { product_id: productId, active: false, reason: 'Manager asked to hide this listing', action_id: actionId } }) });
-  assert.equal(directToolAttempt.status, 409, 'an MCP call outside the authenticated confirmed chat must not execute');
-  assert.equal(changes.length, 0);
-
-  const confirmed = await chat([
-    { role: 'user', content: 'Hide this product from the store.' },
-    { role: 'assistant', content: `Proposed to hide ${productId}. Reply exactly: I CONFIRM THIS CHANGE ${actionId}` },
+  const invalid = await invoke('unknown');
+  assert.equal(invalid.status, 422);
+  assert.equal(proposals.size, 0);
+  const proposal = await invoke('clothing');
+  assert.equal(proposal.status, 200);
+  const proposalBody = await proposal.json() as { status: string; details: Record<string, unknown>; action_id: string };
+  assert.equal(proposalBody.status, 'confirmation_required');
+  assert.equal(proposalBody.details.active, undefined);
+  assert.equal(proposalBody.details.vertical_key, 'clothing');
+  assert.equal(productCreations, 0, 'a proposal must not create the product before approval');
+  assert.equal(proposals.size, 1);
+  const actionId = proposalBody.action_id;
+  assert.deepEqual(proposals.get(actionId)?.arguments, {
+    sku: 'INK-TSHIRT-01', name: 'Printed T-shirt', category: 'Apparel', base_unit: 'piece', vertical_key: 'clothing',
+    description: 'Cotton shirt with custom print', attributes: {}, requires_design: false, requires_size: true, reason: 'Manager asked to prepare a clothing item'
+  });
+  const confirmation = await fetch(`${base}/api/ai/chat`, { method: 'POST', headers: { authorization: 'Bearer manager-token', 'content-type': 'application/json' }, body: JSON.stringify({ messages: [
+    { role: 'user', content: 'Prepare this clothing product.' },
+    { role: 'assistant', content: `I prepared the inactive product draft. Reply exactly: I CONFIRM THIS CHANGE ${actionId}` },
     { role: 'user', content: `I CONFIRM THIS CHANGE ${actionId}` }
-  ]);
+  ] }) });
+  assert.equal(confirmation.status, 200);
+  assert.equal(productCreations, 1);
+  assert.equal(createdProduct?.active, false, 'approved Hermes creation must never publish the product');
+  assert.equal(proposals.get(actionId)?.status, 'completed');
+});
+
+test('Hermes storefront action creates a review draft but does not publish it', async (context) => {
+  const managerId = '30000000-0000-4000-8000-000000000099';
+  const config = {
+    store_name: 'INKORA', tagline: 'Create. Print. Grow.', hero_eyebrow: 'MANSOURA PRINT STUDIO · INKORA',
+    hero_title_en: 'Make your next idea tangible.', hero_title_ar: 'أفكارك، مطبوعة بعناية.',
+    hero_description_en: 'Thoughtful print for ambitious brands.', hero_description_ar: 'طباعة مخصصة بعناية.',
+    announcement_en: 'Summer print, ready to order.', announcement_ar: 'طباعة الصيف جاهزة للطلب.',
+    accent_color: '#2b6de0', featured_product_ids: []
+  };
+  const proposals = new Map<string, { arguments: Record<string, unknown>; status: string }>();
+  let toolUrl = '';
+  let savedDraft: Record<string, unknown> | undefined;
+  let published = false;
+  const gateway = {
+    async authenticate(token: string) { assert.equal(token, 'manager-token'); return { id: managerId }; },
+    async getRole(id: string) { assert.equal(id, managerId); return 'manager' as const; },
+    async recordAiRun() {},
+    async createHermesActionProposal(input: { id: string; arguments: Record<string, unknown> }) { proposals.set(input.id, { arguments: input.arguments, status: 'pending' }); return new Date(Date.now() + 600_000).toISOString(); },
+    async approveHermesActionProposal(id: string) { const proposal = proposals.get(id); if (!proposal || proposal.status !== 'pending') return false; proposal.status = 'approved'; return true; },
+    async claimHermesActionProposal(input: { id: string; arguments: Record<string, unknown> }) { const proposal = proposals.get(input.id); if (!proposal || proposal.status !== 'approved' || JSON.stringify(proposal.arguments) !== JSON.stringify(input.arguments)) return false; proposal.status = 'executing'; return true; },
+    async finishHermesActionProposal(input: { id: string; status: string }) { const proposal = proposals.get(input.id); if (proposal) proposal.status = input.status; },
+    async createStorefrontConfigDraft(_actorId: string, draft: Record<string, unknown>) { savedDraft = draft; return { id: 'storefront-revision-2', version: 2, status: 'draft' }; },
+    async publishStorefrontConfig() { published = true; return { id: 'storefront-revision-2', version: 2, status: 'published' }; }
+  } as unknown as AuthGateway;
+  const server = createApiServer({ gateway, pricing: repository(), hermesToolKey: 'tool-secret', hermesWriteToolsEnabled: true, hermesManagerUserId: managerId,
+    hermes: { async complete(messages) {
+      const last = messages.at(-1)?.content ?? '';
+      const id = /I CONFIRM THIS CHANGE ([0-9a-f-]{36})/i.exec(last)?.[1];
+      const response = await fetch(toolUrl, { method: 'POST', headers: { 'content-type': 'application/json', 'x-printshop-hermes-key': 'tool-secret' },
+        body: JSON.stringify({ name: 'prepare_storefront_update', arguments: { config, reason: 'Manager requested the updated blue brand campaign', ...(id ? { action_id: id } : {}) } }) });
+      return { content: response.ok ? JSON.stringify(await response.json()) : 'The storefront change was blocked.', model: 'test-hermes' };
+    } }
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  context.after(() => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Test server did not bind a TCP port.');
+  const base = `http://127.0.0.1:${address.port}`;
+  toolUrl = `${base}/api/hermes/tools`;
+  const invalid = await fetch(toolUrl, { method: 'POST', headers: { 'content-type': 'application/json', 'x-printshop-hermes-key': 'tool-secret' }, body: JSON.stringify({ name: 'prepare_storefront_update', arguments: { config: { ...config, featured_product_ids: ['not-a-uuid'] }, reason: 'Use an invalid product ID' } }) });
+  assert.equal(invalid.status, 400);
+  assert.equal(proposals.size, 0);
+  const first = await fetch(toolUrl, { method: 'POST', headers: { 'content-type': 'application/json', 'x-printshop-hermes-key': 'tool-secret' }, body: JSON.stringify({ name: 'prepare_storefront_update', arguments: { config, reason: 'Manager requested the updated blue brand campaign' } }) });
+  assert.equal(first.status, 200);
+  const firstBody = await first.json() as { action_id: string };
+  assert.equal(savedDraft, undefined);
+  const confirmed = await fetch(`${base}/api/ai/chat`, { method: 'POST', headers: { authorization: 'Bearer manager-token', 'content-type': 'application/json' }, body: JSON.stringify({ messages: [
+    { role: 'user', content: 'Prepare an updated storefront.' },
+    { role: 'assistant', content: `Proposed the reviewed draft. Reply exactly: I CONFIRM THIS CHANGE ${firstBody.action_id}` },
+    { role: 'user', content: `I CONFIRM THIS CHANGE ${firstBody.action_id}` }
+  ] }) });
   assert.equal(confirmed.status, 200);
-  assert.deepEqual(approvedResult, { product_id: productId, changes: { active: false }, audit_logged: true });
-  assert.equal(changes.length, 3);
-  assert.equal((changes[0] as Record<string, unknown>).action, 'hermes.update_product_details.requested');
-  assert.deepEqual(changes[1], { type: 'product', id: productId, fields: { active: false } });
-  assert.equal((changes[2] as Record<string, unknown>).action, 'hermes.update_product_details.completed');
+  assert.deepEqual(savedDraft, config);
+  assert.equal(published, false, 'Hermes must not publish the storefront configuration');
+  assert.equal(proposals.get(firstBody.action_id)?.status, 'completed');
 });
 
 test('marketing campaigns use a brief and optional catalog product, never customer orders', async (context) => {

@@ -1,0 +1,29 @@
+model:
+  default: gemini-3.5-flash-lite
+  provider: gemini
+  base_url: https://generativelanguage.googleapis.com/v1beta
+
+gateway:
+  api_server:
+    enabled: true
+    host: 0.0.0.0
+    port: 8642
+    max_concurrent_runs: 2
+  allow_all_users: false
+
+tool_loop_guardrails:
+  hard_stop_enabled: true
+  hard_stop_after:
+    exact_failure: 5
+    idempotent_no_progress: 5
+
+mcp_servers:
+  inkora:
+    url: https://printshop-ai.shabara123456.workers.dev/mcp
+    headers:
+      Authorization: "Bearer ${HERMES_TOOL_API_KEY}"
+    timeout: 60
+    connect_timeout: 30
+    tools:
+      resources: false
+      prompts: false

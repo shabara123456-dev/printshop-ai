@@ -72,7 +72,7 @@ test('Supabase errors are logged with safe metadata and never returned verbatim'
   });
 });
 
-test('public product catalog only returns variants with an effective shop price rule', async (context) => {
+test('public product catalog retains priced sold-out variants so the store can label them unavailable', async (context) => {
   const previousUrl = process.env.SUPABASE_URL;
   const previousPublishable = process.env.SUPABASE_PUBLISHABLE_KEY;
   const previousSecret = process.env.SUPABASE_SECRET_KEY;
@@ -84,8 +84,9 @@ test('public product catalog only returns variants with an effective shop price 
   globalThis.fetch = async (input) => {
     requests.push(String(input));
     return new Response(JSON.stringify([{
-      id: 'product-1', name: 'Stickers', product_variants: [
+      id: 'product-1', name: 'Stickers', product_option_groups: [{ id:'group-1', option_key:'color', label_en:'Color', label_ar:'اللون', required:true, active:true, display_order:0, product_option_values:[{id:'value-1', value_key:'black', label_en:'Black', label_ar:'أسود', adjustment_type:'one_time', price_adjustment:'25.00', active:true, display_order:0},{id:'inactive', value_key:'hidden', label_en:'Hidden', label_ar:'مخفي', adjustment_type:'one_time', price_adjustment:'90.00', active:false, display_order:1}] }], product_variants: [
         { id: 'valid', sku: 'VALID', price_rules: [{ active_from: '2020-01-01', active_to: null }] },
+        { id: 'sold-out', sku: 'SOLD-OUT', available_quantity: 0, price_rules: [{ active_from: '2020-01-01', active_to: null }] },
         { id: 'expired', sku: 'EXPIRED', price_rules: [{ active_from: '2020-01-01', active_to: '2020-12-31' }] },
         { id: 'future', sku: 'FUTURE', price_rules: [{ active_from: '2099-01-01', active_to: null }] },
         { id: 'unpriced', sku: 'UNPRICED', price_rules: [] }
@@ -100,13 +101,44 @@ test('public product catalog only returns variants with an effective shop price 
   });
 
   const gateway = new SupabaseGateway();
-  const catalog = await gateway.listProducts() as Array<{ product_variants: Array<Record<string, unknown>> }>;
-  assert.deepEqual(catalog[0].product_variants.map((variant) => variant.sku), ['VALID']);
+  const catalog = await gateway.listProducts() as Array<{ product_variants: Array<Record<string, unknown>>; product_option_groups: Array<{key:string;values:Array<{key:string;price_adjustment:string}>}> }>;
+  assert.deepEqual(catalog[0].product_variants.map((variant) => variant.sku), ['VALID', 'SOLD-OUT']);
+  assert.equal(catalog[0].product_option_groups[0].key, 'color');
+  assert.deepEqual(catalog[0].product_option_groups[0].values.map((value) => value.key), ['black']);
   assert.equal('price_rules' in catalog[0].product_variants[0], false);
   assert.match(requests[0], /product_variants%21inner/);
   assert.match(requests[0], /price_rules%21inner/);
 
   const detail = await gateway.getProduct('product-1');
-  assert.deepEqual((detail?.product_variants as Array<Record<string, unknown>>).map((variant) => variant.sku), ['VALID']);
+  assert.deepEqual((detail?.product_variants as Array<Record<string, unknown>>).map((variant) => variant.sku), ['VALID', 'SOLD-OUT']);
+  assert.equal((detail?.product_option_groups as Array<{key:string}>)[0].key, 'color');
   assert.match(requests[1], /product_variants%21inner/);
+});
+
+test('quote gateway carries the demo-only flag into deterministic pricing', async (context) => {
+  const previousUrl = process.env.SUPABASE_URL;
+  const previousPublishable = process.env.SUPABASE_PUBLISHABLE_KEY;
+  const previousSecret = process.env.SUPABASE_SECRET_KEY;
+  const previousFetch = globalThis.fetch;
+  process.env.SUPABASE_URL = 'https://example.supabase.co';
+  process.env.SUPABASE_PUBLISHABLE_KEY = 'public-test-key';
+  process.env.SUPABASE_SECRET_KEY = 'secret-test-key';
+  let requestedUrl = '';
+  globalThis.fetch = async (input) => {
+    requestedUrl = String(input);
+    return new Response(JSON.stringify([{ id: 'variant-1', sku: 'INK-SAMPLE', name: 'Sample', material: 'Paper', available_quantity: null, products: { active: true, demo_only: true } }]), {
+      status: 200, headers: { 'content-type': 'application/json' }
+    });
+  };
+  context.after(() => {
+    globalThis.fetch = previousFetch;
+    if (previousUrl === undefined) delete process.env.SUPABASE_URL; else process.env.SUPABASE_URL = previousUrl;
+    if (previousPublishable === undefined) delete process.env.SUPABASE_PUBLISHABLE_KEY; else process.env.SUPABASE_PUBLISHABLE_KEY = previousPublishable;
+    if (previousSecret === undefined) delete process.env.SUPABASE_SECRET_KEY; else process.env.SUPABASE_SECRET_KEY = previousSecret;
+  });
+
+  const gateway = new SupabaseGateway();
+  const variant = await gateway.getVariantBySku('INK-SAMPLE');
+  assert.equal(variant?.demo_only, true);
+  assert.match(requestedUrl, /products%21inner%28active%2Cdemo_only%29/);
 });

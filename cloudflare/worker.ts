@@ -1,10 +1,51 @@
 import { httpServerHandler } from 'cloudflare:node';
+import { timingSafeEqual } from 'node:crypto';
+import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { createApiServer } from '../apps/api/src/api.ts';
 import { SupabaseGateway } from '../apps/api/src/supabase.ts';
 import { AiHordeMarketingImageClient } from '../apps/api/src/ai-horde-image-client.ts';
 import { HermesRemoteHttpClient } from '../apps/api/src/hermes-http-client.ts';
+import { drainAutomationOutbox } from '../apps/api/src/automation-outbox.ts';
+import { N8nManagementClient } from '../apps/api/src/n8n-management-client.ts';
+import { createPrintshopMcpServer } from '../apps/hermes/src/tools.ts';
 
 let handleNodeApi: ReturnType<typeof httpServerHandler> | undefined;
+let gatewayInstance: SupabaseGateway | undefined;
+
+function integrationProbeUrl(base: string | undefined, healthPath = 'healthz'): string | undefined {
+  if (!base?.trim()) return undefined;
+  try { return new URL(`${base.replace(/\/+$/, '')}/${healthPath.replace(/^\/+/, '')}`).toString(); }
+  catch { return undefined; }
+}
+
+function sameSecret(actual: string | null, expected: string | undefined): boolean {
+  if (!actual || !expected) return false;
+  const actualBytes = new TextEncoder().encode(actual);
+  const expectedBytes = new TextEncoder().encode(expected);
+  return actualBytes.byteLength === expectedBytes.byteLength && timingSafeEqual(actualBytes, expectedBytes);
+}
+
+async function handleHermesMcp(request: Request): Promise<Response> {
+  const key = process.env.HERMES_TOOL_API_KEY?.trim();
+  if (!key) return new Response(JSON.stringify({ error: 'MCP service is not configured.' }), { status: 503, headers: { 'content-type': 'application/json' } });
+  const auth = request.headers.get('authorization');
+  const bearer = auth && /^Bearer\s+/i.test(auth) ? auth.replace(/^Bearer\s+/i, '') : null;
+  if (!sameSecret(request.headers.get('x-printshop-hermes-key') ?? bearer, key)) {
+    return new Response(JSON.stringify({ error: 'Unauthorized.' }), { status: 401, headers: { 'content-type': 'application/json' } });
+  }
+  if (!['GET', 'POST', 'DELETE'].includes(request.method)) return new Response('Method not allowed.', { status: 405, headers: { allow: 'GET, POST, DELETE' } });
+  const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true, maxRequestBodySize: 262_144 });
+  // Dispatch MCP tools into this Worker’s API handler directly. Fetching the
+  // Worker’s public hostname from itself is not a supported internal route and
+  // can be intercepted by the static asset layer.
+  const server = createPrintshopMcpServer({
+    apiBase: new URL(request.url).origin,
+    managerToolKey: key,
+    internalFetch: (apiRequest) => getNodeApi().fetch(apiRequest)
+  });
+  await server.connect(transport);
+  return transport.handleRequest(request);
+}
 
 function getNodeApi(): ReturnType<typeof httpServerHandler> {
   if (handleNodeApi) return handleNodeApi;
@@ -13,7 +54,7 @@ function getNodeApi(): ReturnType<typeof httpServerHandler> {
   // imports the module during deployment validation, before runtime secrets and
   // variables are attached, so constructing SupabaseGateway at module scope
   // makes every deployment fail with a misleading missing-environment error.
-  const gateway = new SupabaseGateway();
+  const gateway = getGateway();
   const apiServer = createApiServer({
     gateway,
     pricing: gateway,
@@ -23,13 +64,20 @@ function getNodeApi(): ReturnType<typeof httpServerHandler> {
     hermes: process.env.HERMES_BASE_URL?.trim() && process.env.HERMES_API_KEY?.trim()
       ? new HermesRemoteHttpClient()
       : undefined,
+    hermesProbeUrl: process.env.HERMES_HEALTH_URL?.trim() || integrationProbeUrl(process.env.HERMES_BASE_URL, 'healthz'),
+    n8nProbeUrl: integrationProbeUrl(process.env.N8N_WEBHOOK_BASE_URL),
     marketingImage: process.env.MARKETING_IMAGE_PROVIDER?.trim().toLowerCase() === 'off'
       ? undefined
       : new AiHordeMarketingImageClient(),
-    // Hermes currently runs as a local CLI and is intentionally not bundled into a public Worker.
-    hermesWriteToolsEnabled: false,
+    // The Worker only proxies authenticated manager chat. Hermes runs separately with
+    // the restricted printshop-ai MCP toolset; its server-to-server key is never
+    // exposed to browser requests. Manager write actions remain disabled by default.
+    hermesToolKey: process.env.HERMES_TOOL_API_KEY,
+    hermesManagerUserId: process.env.HERMES_MANAGER_USER_ID,
+    hermesWriteToolsEnabled: process.env.HERMES_WRITE_TOOLS_ENABLED === 'true',
     n8nWebhookBaseUrl: process.env.N8N_WEBHOOK_BASE_URL,
     n8nWebhookSecret: process.env.N8N_WEBHOOK_SECRET,
+    n8nManagement: new N8nManagementClient({ baseUrl: process.env.N8N_API_BASE_URL || process.env.N8N_WEBHOOK_BASE_URL, apiKey: process.env.N8N_API_KEY }),
     managerEmail: process.env.PRINTSHOP_MANAGER_EMAIL
   });
   apiServer.listen(8080);
@@ -37,13 +85,30 @@ function getNodeApi(): ReturnType<typeof httpServerHandler> {
   return handleNodeApi;
 }
 
+function getGateway(): SupabaseGateway {
+  if (!gatewayInstance) gatewayInstance = new SupabaseGateway();
+  return gatewayInstance;
+}
+
 export default {
   fetch(request: Request): Response | Promise<Response> {
     const path = new URL(request.url).pathname;
-    if (path === '/health') return new Response(JSON.stringify({ status: 'ok' }), {
-      headers: { 'content-type': 'application/json; charset=utf-8' }
-    });
-    if (path.startsWith('/api/')) return getNodeApi().fetch(request);
+    if (path === '/mcp') return handleHermesMcp(request);
+    if (path === '/health' || path === '/ready' || path.startsWith('/api/')) return getNodeApi().fetch(request);
     return new Response('Not found', { status: 404 });
+  },
+  scheduled(_event: unknown, _env: unknown, context: { waitUntil(promise: Promise<unknown>): void }): void {
+    const baseUrl = process.env.N8N_WEBHOOK_BASE_URL;
+    const secret = process.env.N8N_WEBHOOK_SECRET;
+    if (!baseUrl || !secret) return;
+    context.waitUntil(drainAutomationOutbox({
+      gateway: getGateway(),
+      webhookBaseUrl: baseUrl,
+      secret,
+      managerEmail: process.env.PRINTSHOP_MANAGER_EMAIL,
+      logger: (message) => console.error(message)
+    }).catch((error) => {
+      console.error(JSON.stringify({ level: 'error', event: 'automation.outbox.poll_failed', error: error instanceof Error ? error.message.slice(0, 200) : 'unknown' }));
+    }));
   }
 };

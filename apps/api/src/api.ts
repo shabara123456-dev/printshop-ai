@@ -1,7 +1,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { AppError } from './errors.ts';
-import { calculateQuote, type PricingRepository, type QuoteLineInput } from './pricing.ts';
+import { calculateQuote, type PricingRepository, type ProductOptionGroup, type QuoteLineInput } from './pricing.ts';
+import type { N8nOperationsOverview } from './n8n-management-client.ts';
 
 export type Role = 'customer' | 'manager' | 'sales' | 'production' | 'marketing' | 'admin';
 export type QuoteStatus = 'sent' | 'accepted' | 'rejected' | 'expired';
@@ -13,14 +14,34 @@ export type InventoryCommand =
   | { action: 'adjust'; materialId: string; delta: number }
   | { action: 'reserve' | 'release' | 'consume'; materialId: string; quantity: number; orderId: string };
 
+export type StorefrontConfig = {
+  store_name: string; tagline: string; hero_eyebrow: string;
+  hero_title_en: string; hero_title_ar: string;
+  hero_description_en: string; hero_description_ar: string;
+  announcement_en: string; announcement_ar: string;
+  accent_color: string; featured_product_ids: string[];
+};
+
+const defaultStorefrontConfig: StorefrontConfig = {
+  store_name: 'INKORA', tagline: 'Create. Print. Grow.',
+  hero_eyebrow: 'MANSOURA PRINT STUDIO · INKORA',
+  hero_title_en: 'Make your next idea tangible.', hero_title_ar: 'أفكارك، مطبوعة بعناية.',
+  hero_description_en: 'Thoughtful print for ambitious brands. Configure a product and follow every production step from our Mansoura shop.',
+  hero_description_ar: 'طباعة مخصصة، تصميم مدروس، ومتابعة واضحة من أول طلب حتى التسليم.',
+  announcement_en: '', announcement_ar: '', accent_color: '#6f9fee', featured_product_ids: []
+};
+
 export type AuthGateway = {
+  checkDatabaseReady?(): Promise<void>;
   authenticate(token: string): Promise<{ id: string }>;
   getRole(userId: string): Promise<Role | null>;
   getCustomerId(userId: string): Promise<string | null>;
   customerExists(customerId: string): Promise<boolean>;
   saveQuote(input: { customerId: string; subtotal: string; discount: string; tax: string; total: string; items: Array<Record<string, unknown>> }): Promise<string>;
   listProducts(search?: string, includeInactive?: boolean): Promise<unknown[]>;
+  listVerticals?(): Promise<CommerceVertical[]>;
   getProduct(id: string): Promise<Record<string, unknown> | null>;
+  replaceProductOptions?(actorId: string, productId: string, options: ProductOptionGroup[], reason: string): Promise<void>;
   getQuote(id: string): Promise<Record<string, unknown> | null>;
   listQuotes(customerId?: string): Promise<unknown[]>;
   listCustomers(): Promise<unknown[]>;
@@ -29,6 +50,7 @@ export type AuthGateway = {
   getBusinessAnalytics?(from: string, to: string): Promise<Record<string, unknown>>;
   createProduct?(input: Record<string, unknown>): Promise<string>;
   updateProduct?(id: string, input: Record<string, unknown>): Promise<void>;
+  promoteDemoProduct?(actorId: string, id: string): Promise<void>;
   createProductVariant?(productId: string, input: Record<string, unknown>): Promise<string>;
   updateProductVariant?(id: string, input: Record<string, unknown>): Promise<void>;
   createPriceRule?(actorId: string, input: Record<string, unknown>, reason: string): Promise<string>;
@@ -57,12 +79,24 @@ export type AuthGateway = {
   createSignedMarketingImageUrl?(path: string, expiresInSeconds?: number): Promise<string>;
   updateMarketingAssetStatus(id: string, status: 'approved' | 'rejected'): Promise<void>;
   recordAuditLog?(input: { userId: string; action: string; entityType: string; entityId: string | null; metadata: Record<string, unknown> }): Promise<void>;
+  createHermesActionProposal?(input: { id: string; managerId: string; action: string; arguments: Record<string, unknown> }): Promise<string>;
+  approveHermesActionProposal?(id: string, managerId: string): Promise<boolean>;
+  claimHermesActionProposal?(input: { id: string; managerId: string; action: string; arguments: Record<string, unknown> }): Promise<boolean>;
+  finishHermesActionProposal?(input: { id: string; status: 'completed' | 'failed'; result: Record<string, unknown> | null; errorCode?: string }): Promise<void>;
+  getStorefrontConfig?(): Promise<{ id: string; version: number; config: StorefrontConfig } | null>;
+  listStorefrontRevisions?(): Promise<unknown[]>;
+  createStorefrontConfigDraft?(actorId: string, config: StorefrontConfig): Promise<{ id: string; version: number; status: string }>;
+  publishStorefrontConfig?(actorId: string, revisionId: string): Promise<{ id: string; version: number; status: string }>;
+  listAutomationEvents?(): Promise<Array<Record<string, unknown>>>;
+  retryDeadAutomationEvent?(actorId: string, eventId: string): Promise<boolean>;
 };
+
+export type CommerceVertical = { vertical_key: string; label_en: string; label_ar: string; capabilities: Record<string, unknown>; active: boolean };
 
 export type HermesChatMessage = { role: 'user' | 'assistant'; content: string };
 export type HermesChatClient = { complete(messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>): Promise<{ content: string; model: string; usage?: { prompt_tokens?: number; completion_tokens?: number } }> };
 export type MarketingImageClient = { generate(prompt: string): Promise<{ data: Buffer; mimeType: string; model: string; estimatedCostUsd: number | null }> };
-type Dependencies = { gateway: AuthGateway; pricing: PricingRepository; allowedOrigins?: string[]; allowSameOrigin?: boolean; hermes?: HermesChatClient; marketingImage?: MarketingImageClient; hermesToolKey?: string; hermesWriteToolsEnabled?: boolean; hermesManagerUserId?: string; n8nWebhookBaseUrl?: string; n8nWebhookSecret?: string; managerEmail?: string };
+type Dependencies = { gateway: AuthGateway; pricing: PricingRepository; allowedOrigins?: string[]; allowSameOrigin?: boolean; hermes?: HermesChatClient; hermesProbeUrl?: string; n8nProbeUrl?: string; n8nManagement?: { overview(): Promise<N8nOperationsOverview> }; marketingImage?: MarketingImageClient; hermesToolKey?: string; hermesWriteToolsEnabled?: boolean; hermesManagerUserId?: string; n8nWebhookBaseUrl?: string; n8nWebhookSecret?: string; managerEmail?: string };
 type Actor = { id: string; role: Role };
 
 class UserAiRateLimiter {
@@ -128,6 +162,35 @@ function requiredText(value: unknown, name: string, maxLength = 4000): string {
   return value.trim();
 }
 
+function productAttributes(value: unknown, name = 'attributes'): Record<string, unknown> {
+  let parsed = value;
+  if (typeof value === 'string') {
+    if (value.length > 8000) throw new AppError('INVALID_REQUEST', 400, `${name} must be at most 8000 characters.`);
+    try { parsed = value.trim() ? JSON.parse(value) : {}; }
+    catch { throw new AppError('INVALID_REQUEST', 400, `${name} must be a valid JSON object.`); }
+  }
+  if (parsed === undefined || parsed === null) return {};
+  if (typeof parsed !== 'object' || Array.isArray(parsed)) throw new AppError('INVALID_REQUEST', 400, `${name} must be a JSON object.`);
+  const entries = Object.entries(parsed as Record<string, unknown>);
+  if (entries.length > 40) throw new AppError('INVALID_REQUEST', 400, `${name} can contain at most 40 fields.`);
+  const result: Record<string, unknown> = {};
+  const validValue = (field: unknown, depth = 0): boolean => {
+    if (depth > 4) return false;
+    if (field === null || typeof field === 'boolean') return true;
+    if (typeof field === 'string') return field.length <= 500;
+    if (typeof field === 'number') return Number.isFinite(field);
+    if (Array.isArray(field)) return field.length <= 100 && field.every((entry) => validValue(entry, depth + 1));
+    if (typeof field === 'object') return Object.entries(field as Record<string, unknown>).length <= 40 && Object.entries(field as Record<string, unknown>).every(([nestedKey, nestedValue]) => /^[a-z][a-z0-9_]{0,39}$/.test(nestedKey) && !['constructor','prototype','__proto__'].includes(nestedKey) && validValue(nestedValue, depth + 1));
+    return false;
+  };
+  for (const [key, field] of entries) {
+    if (!/^[a-z][a-z0-9_]{0,39}$/.test(key)) throw new AppError('INVALID_REQUEST', 400, `${name} keys must use lowercase letters, numbers, and underscores.`);
+    if (!validValue(field)) throw new AppError('INVALID_REQUEST', 400, `${name}.${key} must contain bounded JSON values (maximum nesting depth 4).`);
+    result[key] = field;
+  }
+  return result;
+}
+
 function positiveNumber(value: unknown, name: string): number {
   const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
   if (!Number.isFinite(parsed) || parsed <= 0) throw new AppError('INVALID_REQUEST', 400, `${name} must be a positive number.`);
@@ -137,6 +200,12 @@ function positiveNumber(value: unknown, name: string): number {
 function nonnegativeNumber(value: unknown, name: string): number {
   const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
   if (!Number.isFinite(parsed) || parsed < 0) throw new AppError('INVALID_REQUEST', 400, `${name} must be a non-negative number.`);
+  return parsed;
+}
+
+function nonnegativeWholeNumber(value: unknown, name: string): number {
+  const parsed = nonnegativeNumber(value, name);
+  if (!Number.isSafeInteger(parsed)) throw new AppError('INVALID_REQUEST', 400, `${name} must be a whole number.`);
   return parsed;
 }
 
@@ -155,6 +224,65 @@ function optionalPrice(value: unknown, name: string, fallback = '0.00'): string 
   return parsed;
 }
 
+function storefrontConfig(value: unknown): StorefrontConfig {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new AppError('INVALID_REQUEST', 400, 'config must be an object.');
+  const row = value as Record<string, unknown>;
+  const allowed = new Set(['store_name','tagline','hero_eyebrow','hero_title_en','hero_title_ar','hero_description_en','hero_description_ar','announcement_en','announcement_ar','accent_color','featured_product_ids']);
+  if (Object.keys(row).some((key) => !allowed.has(key))) throw new AppError('INVALID_REQUEST', 400, 'config contains unsupported storefront fields.');
+  const color = requiredText(row.accent_color, 'accent_color', 7);
+  if (!/^#[0-9a-f]{6}$/i.test(color)) throw new AppError('INVALID_REQUEST', 400, 'accent_color must be a six-digit hex color.');
+  const productIds = row.featured_product_ids ?? [];
+  if (!Array.isArray(productIds) || productIds.length > 12) throw new AppError('INVALID_REQUEST', 400, 'featured_product_ids must contain no more than 12 product IDs.');
+  const ids = productIds.map((id, index) => uuid(id, `featured_product_ids[${index}]`));
+  if (new Set(ids).size !== ids.length) throw new AppError('INVALID_REQUEST', 400, 'featured_product_ids cannot contain duplicates.');
+  const optionalText = (field: string, max: number) => {
+    const text = row[field] ?? '';
+    if (typeof text !== 'string' || text.length > max) throw new AppError('INVALID_REQUEST', 400, `${field} must be a string no longer than ${max} characters.`);
+    return text.trim();
+  };
+  return {
+    store_name: requiredText(row.store_name, 'store_name', 80),
+    tagline: requiredText(row.tagline, 'tagline', 120),
+    hero_eyebrow: requiredText(row.hero_eyebrow, 'hero_eyebrow', 120),
+    hero_title_en: requiredText(row.hero_title_en, 'hero_title_en', 180),
+    hero_title_ar: requiredText(row.hero_title_ar, 'hero_title_ar', 180),
+    hero_description_en: requiredText(row.hero_description_en, 'hero_description_en', 600),
+    hero_description_ar: requiredText(row.hero_description_ar, 'hero_description_ar', 600),
+    announcement_en: optionalText('announcement_en', 240),
+    announcement_ar: optionalText('announcement_ar', 240),
+    accent_color: color.toLowerCase(),
+    featured_product_ids: ids
+  };
+}
+
+function productOptionGroups(value: unknown): ProductOptionGroup[] {
+  if (!Array.isArray(value) || value.length > 30) throw new AppError('INVALID_REQUEST', 400, 'options must be an array with no more than 30 groups.');
+  const keys = new Set<string>();
+  return value.map((rawGroup, groupIndex) => {
+    if (!rawGroup || typeof rawGroup !== 'object' || Array.isArray(rawGroup)) throw new AppError('INVALID_REQUEST', 400, `options[${groupIndex}] must be an object.`);
+    const group = rawGroup as Record<string, unknown>;
+    const key = requiredText(group.key, `options[${groupIndex}].key`, 40);
+    if (!/^[a-z][a-z0-9_]{0,39}$/.test(key) || keys.has(key)) throw new AppError('INVALID_REQUEST', 400, `options[${groupIndex}].key must be unique and use lowercase letters, numbers, or underscores.`);
+    keys.add(key);
+    if (typeof group.required !== 'boolean') throw new AppError('INVALID_REQUEST', 400, `options[${groupIndex}].required must be boolean.`);
+    if (!Array.isArray(group.values) || group.values.length < 1 || group.values.length > 50) throw new AppError('INVALID_REQUEST', 400, `options[${groupIndex}].values must contain between 1 and 50 values.`);
+    const valueKeys = new Set<string>();
+    return {
+      key, label_en: requiredText(group.label_en, `options[${groupIndex}].label_en`, 80),
+      label_ar: requiredText(group.label_ar, `options[${groupIndex}].label_ar`, 80), required: group.required,
+      values: group.values.map((rawValue, valueIndex) => {
+        if (!rawValue || typeof rawValue !== 'object' || Array.isArray(rawValue)) throw new AppError('INVALID_REQUEST', 400, `options[${groupIndex}].values[${valueIndex}] must be an object.`);
+        const option = rawValue as Record<string, unknown>;
+        const valueKey = requiredText(option.key, `options[${groupIndex}].values[${valueIndex}].key`, 40);
+        if (!/^[a-z][a-z0-9_]{0,39}$/.test(valueKey) || valueKeys.has(valueKey)) throw new AppError('INVALID_REQUEST', 400, `Option value keys must be unique and use lowercase letters, numbers, or underscores.`);
+        valueKeys.add(valueKey);
+        if (option.adjustment_type !== 'per_unit' && option.adjustment_type !== 'one_time') throw new AppError('INVALID_REQUEST', 400, `options[${groupIndex}].values[${valueIndex}].adjustment_type must be per_unit or one_time.`);
+        return { key: valueKey, label_en: requiredText(option.label_en, 'option label_en', 80), label_ar: requiredText(option.label_ar, 'option label_ar', 80), adjustment_type: option.adjustment_type, price_adjustment: optionalPrice(option.price_adjustment, 'price_adjustment') };
+      })
+    };
+  });
+}
+
 function routeId(path: string, prefix: string): string | null {
   if (!path.startsWith(prefix)) return null;
   const tail = path.slice(prefix.length);
@@ -171,19 +299,7 @@ function requireRole(actor: Actor, roles: Role[]): void {
   if (!roles.includes(actor.role)) throw new AppError('FORBIDDEN', 403, 'Your role cannot access this operation.');
 }
 
-const hermesInstructions = `You are Hermes, the PrintShop AI operations assistant. Use the PrintShop tools for live business facts and supported manager actions. The backend is authoritative for products, prices, stock, orders, and production; never invent business facts or prices. Use read tools before proposing a change when needed. A write tool first creates a pending proposal and returns an action ID. Explain the exact item and values and ask the manager to reply exactly "I CONFIRM THIS CHANGE <action_id>". Do not repeat the write tool until the manager's next message contains that exact phrase and the same ID. Never infer approval from earlier, vague, or unrelated messages. Never use a write tool to set or estimate prices, mark payment as paid, publish social posts, or claim an unavailable integration worked. The sales report measures order value, not cash collected. If a tool fails, report the failure and do not claim success.`;
-
-type PendingHermesAction = { action: string; managerId: string; args: Record<string, unknown>; createdAt: number; state: 'pending' | 'executing' };
-
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
-  if (value && typeof value === 'object') {
-    const row = value as Record<string, unknown>;
-    return `{${Object.keys(row).sort().map((key) => `${JSON.stringify(key)}:${stableJson(row[key])}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
+const hermesInstructions = `You are Hermes, the INKORA store operations assistant. Use INKORA tools for live business facts and supported manager actions across printing, clothing, electronics, cosmetics, furniture, and generic stores. The backend is authoritative for products, prices, stock, orders, and production; never invent business facts or prices. Use read tools before proposing a change when needed. A write tool first creates a pending proposal and returns an action ID. Explain the exact item and values and ask the manager to reply exactly "I CONFIRM THIS CHANGE <action_id>". Do not repeat the write tool until the manager's next message contains that exact phrase and the same ID. Never infer approval from earlier, vague, or unrelated messages. Storefront updates create an unpublished versioned draft; tell the manager to preview and publish it in Storefront settings. Never claim it is live until the manager publishes it. Product drafts remain inactive until configured with a variant, approved price, and stock. Never use a write tool to set or estimate prices, mark payment as paid, publish social posts, or claim an unavailable integration worked. The sales report measures order value, not cash collected. If a tool fails, report the failure and do not claim success.`;
 
 function isIsoDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -217,6 +333,15 @@ function suppliedIntegrationKey(request: IncomingMessage, expected: string | und
   return actualBytes.length === expectedBytes.length && timingSafeEqual(actualBytes, expectedBytes);
 }
 
+async function probeIntegration(url: string): Promise<'reachable' | 'unavailable'> {
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(2_500), headers: { accept: 'application/json' } });
+    if (!response.ok) return 'unavailable';
+    const result = await response.json() as { status?: unknown };
+    return result.status === 'ok' ? 'reachable' : 'unavailable';
+  } catch { return 'unavailable'; }
+}
+
 async function dispatchN8n(deps: Dependencies, event: Record<string, unknown>): Promise<void> {
   if (!deps.n8nWebhookBaseUrl || !deps.n8nWebhookSecret) return;
   const endpoint = `${deps.n8nWebhookBaseUrl.replace(/\/$/, '')}/webhook/printshop-ai-events`;
@@ -241,8 +366,6 @@ function sendError(response: ServerResponse, error: unknown, requestId: string):
 export function createApiServer(deps: Dependencies): Server {
   const allowed = new Set(deps.allowedOrigins ?? ['http://localhost:5173', 'http://localhost:3000']);
   const aiRateLimiter = new UserAiRateLimiter();
-  const pendingHermesActions = new Map<string, PendingHermesAction>();
-  const activeHermesApprovals = new Map<string, Set<string>>();
   return createServer(async (request, response) => {
     const requestId = randomUUID();
     const startedAt = Date.now();
@@ -279,6 +402,26 @@ export function createApiServer(deps: Dependencies): Server {
     const path = new URL(request.url ?? '/', 'http://localhost').pathname;
     const method = request.method ?? 'GET';
     if (method === 'GET' && path === '/health') { send(response, 200, { status: 'ok' }); return; }
+    if (method === 'GET' && path === '/ready') {
+      const [hermes, n8n] = await Promise.all([
+        deps.hermes ? (deps.hermesProbeUrl ? probeIntegration(deps.hermesProbeUrl) : Promise.resolve('configured' as const)) : Promise.resolve('not_configured' as const),
+        deps.n8nWebhookBaseUrl && deps.n8nWebhookSecret ? (deps.n8nProbeUrl ? probeIntegration(deps.n8nProbeUrl) : Promise.resolve('configured' as const)) : Promise.resolve('not_configured' as const)
+      ]);
+      const checks = { database: 'not_checked', hermes, n8n };
+      if (!deps.gateway.checkDatabaseReady) {
+        send(response, 503, { status: 'not_ready', checks });
+        return;
+      }
+      try {
+        await deps.gateway.checkDatabaseReady();
+        const readyChecks = { ...checks, database: 'ok' };
+        const ready = [hermes, n8n].every((status) => status === 'not_configured' || status === 'reachable');
+        send(response, ready ? 200 : 503, { status: ready ? 'ready' : 'degraded', checks: readyChecks });
+      } catch {
+        send(response, 503, { status: 'not_ready', checks: { ...checks, database: 'unavailable' } });
+      }
+      return;
+    }
     if (method === 'GET' && path === '/api/integrations/daily-report') {
       if (!suppliedIntegrationKey(request, deps.n8nWebhookSecret)) {
         send(response, 401, { error: { code: 'UNAUTHORIZED', message: 'PrintShop integration authentication is required.', request_id: requestId } });
@@ -409,10 +552,22 @@ export function createApiServer(deps: Dependencies): Server {
     }
 
     try {
+      if (method === 'GET' && path === '/api/verticals') {
+        if (!deps.gateway.listVerticals) throw new AppError('VERTICALS_UNAVAILABLE', 503, 'Commerce vertical configuration is not available on this server.');
+        send(response, 200, { verticals: await deps.gateway.listVerticals() });
+        return;
+      }
       if (method === 'GET' && path === '/api/products') {
         const search = new URL(request.url ?? '/', 'http://localhost').searchParams.get('search')?.trim();
         if (search && search.length > 100) throw new AppError('INVALID_REQUEST', 400, 'search must be at most 100 characters.');
         send(response, 200, { products: await deps.gateway.listProducts(search) });
+        return;
+      }
+
+      if (method === 'GET' && path === '/api/storefront') {
+        if (!deps.gateway.getStorefrontConfig) throw new AppError('STOREFRONT_UNAVAILABLE', 503, 'Storefront configuration is not available on this server.');
+        const published = await deps.gateway.getStorefrontConfig();
+        send(response, 200, { version: published?.version ?? 1, config: published?.config ?? defaultStorefrontConfig });
         return;
       }
       const productId = method === 'GET' ? routeId(path, '/api/products/') : null;
@@ -443,7 +598,7 @@ export function createApiServer(deps: Dependencies): Server {
           ? body.arguments as Record<string, unknown>
           : {};
 
-        const writeTools = ['create_material', 'record_material_receipt', 'update_product_details', 'update_order_status', 'update_production_status'];
+        const writeTools = ['create_material', 'record_material_receipt', 'create_product_draft', 'prepare_storefront_update', 'update_product_details', 'update_order_status', 'update_production_status'];
         if (writeTools.includes(name)) {
           if (!deps.hermesWriteToolsEnabled) throw new AppError('HERMES_ACTIONS_DISABLED', 503, 'Manager write actions are disabled in server configuration.');
           const reason = requiredText(args.reason, 'reason', 500);
@@ -452,33 +607,63 @@ export function createApiServer(deps: Dependencies): Server {
           const managerId = uuid(deps.hermesManagerUserId, 'hermes_manager_user_id');
           if (!['manager', 'admin'].includes(String(await deps.gateway.getRole(managerId)))) throw new AppError('FORBIDDEN', 403, 'The configured Hermes manager account is not authorized.');
           aiRateLimiter.check(managerId, 'hermes_manager_write', 10);
-          const requestedArgs = { ...args };
+          let requestedArgs = { ...args };
           delete requestedArgs.action_id;
+          if (name === 'create_product_draft') {
+            const sku = requiredText(args.sku, 'sku', 80);
+            const productName = requiredText(args.name, 'name', 200);
+            const category = requiredText(args.category, 'category', 80);
+            const baseUnit = requiredText(args.base_unit, 'base_unit', 40);
+            const verticalKey = requiredText(args.vertical_key, 'vertical_key', 40);
+            if (!/^[a-z][a-z0-9_]{0,39}$/.test(verticalKey)) throw new AppError('INVALID_REQUEST', 400, 'vertical_key has an invalid format.');
+            const verticals = await deps.gateway.listVerticals?.();
+            if (!verticals?.some((vertical) => vertical.active && vertical.vertical_key === verticalKey)) throw new AppError('INVALID_VERTICAL', 422, 'Select an active commerce vertical.');
+            const description = args.description === undefined ? '' : typeof args.description === 'string' && args.description.length <= 4000 ? args.description.trim() : (() => { throw new AppError('INVALID_REQUEST', 400, 'description must be a string no longer than 4000 characters.'); })();
+            const attributes = args.attributes === undefined ? {} : productAttributes(args.attributes);
+            if (typeof args.requires_design !== 'boolean' || typeof args.requires_size !== 'boolean') throw new AppError('INVALID_REQUEST', 400, 'requires_design and requires_size must be booleans.');
+            requestedArgs = { sku, name: productName, category, base_unit: baseUnit, vertical_key: verticalKey, description, attributes, requires_design: args.requires_design, requires_size: args.requires_size, reason };
+          } else if (name === 'prepare_storefront_update') {
+            requestedArgs = { config: storefrontConfig(args.config), reason };
+          }
           const approvalId = typeof args.action_id === 'string' ? uuid(args.action_id, 'action_id') : null;
           if (!approvalId) {
-            const now = Date.now();
-            for (const [id, pending] of pendingHermesActions) if (now - pending.createdAt > 10 * 60_000) pendingHermesActions.delete(id);
+            if (!deps.gateway.createHermesActionProposal) throw new AppError('HERMES_APPROVALS_UNAVAILABLE', 503, 'Persistent manager approvals are not configured on this server.');
             const actionId = randomUUID();
-            pendingHermesActions.set(actionId, { action: name, managerId, args: requestedArgs, createdAt: now, state: 'pending' });
-            send(response, 200, { status: 'confirmation_required', action_id: actionId, action: name, details: requestedArgs, expires_in_seconds: 600 });
+            const expiresAt = await deps.gateway.createHermesActionProposal({ id: actionId, managerId, action: name, arguments: requestedArgs });
+            send(response, 200, { status: 'confirmation_required', action_id: actionId, action: name, details: requestedArgs, expires_at: expiresAt, expires_in_seconds: 600 });
             return;
           }
-          const pending = pendingHermesActions.get(approvalId);
-          if (!pending || pending.managerId !== managerId || pending.action !== name || pending.state !== 'pending' || stableJson(pending.args) !== stableJson(requestedArgs)) {
-            throw new AppError('MANAGER_CONFIRMATION_INVALID', 409, 'The approval is missing, expired, or does not match the exact proposed change. Ask Hermes to prepare the change again.');
+          if (!deps.gateway.claimHermesActionProposal || !deps.gateway.finishHermesActionProposal) throw new AppError('HERMES_APPROVALS_UNAVAILABLE', 503, 'Persistent manager approvals are not configured on this server.');
+          if (!await deps.gateway.claimHermesActionProposal({ id: approvalId, managerId, action: name, arguments: requestedArgs })) {
+            throw new AppError('MANAGER_CONFIRMATION_INVALID', 409, 'The proposal is missing, expired, already used, or does not match the exact approved change. Ask Hermes to prepare it again.');
           }
-          if (Date.now() - pending.createdAt > 10 * 60_000) {
-            pendingHermesActions.delete(approvalId);
-            throw new AppError('MANAGER_CONFIRMATION_INVALID', 409, 'The approval expired. Ask Hermes to prepare the change again.');
-          }
-          if (!activeHermesApprovals.get(managerId)?.has(approvalId)) throw new AppError('MANAGER_CONFIRMATION_REQUIRED', 409, 'The manager must confirm this exact action in the current authenticated chat turn.');
-          pending.state = 'executing';
-          if (!deps.gateway.recordAuditLog) throw new AppError('AUDIT_LOG_UNAVAILABLE', 503, 'Manager actions are disabled because audit logging is unavailable.');
-          await deps.gateway.recordAuditLog({ userId: managerId, action: `hermes.${name}.requested`, entityType: 'hermes_action', entityId: null, metadata: { source: 'hermes', reason, action_id: approvalId, proposed: requestedArgs } });
           let entityType: string;
           let entityId: string;
           let actionResult: Record<string, unknown>;
-          if (name === 'create_material') {
+          try {
+          if (name === 'prepare_storefront_update') {
+            if (!deps.gateway.createStorefrontConfigDraft) throw new AppError('STOREFRONT_UNAVAILABLE', 503, 'Storefront draft management is unavailable.');
+            const revision = await deps.gateway.createStorefrontConfigDraft(managerId, storefrontConfig(args.config));
+            entityId = revision.id;
+            entityType = 'storefront_config_revision';
+            actionResult = { revision_id: revision.id, version: revision.version, status: revision.status, published: false, next_step: 'Review and publish this draft from Storefront settings.' };
+          } else if (name === 'create_product_draft') {
+            if (!deps.gateway.createProduct) throw new AppError('PRODUCT_ADMIN_UNAVAILABLE', 503, 'Product administration is unavailable.');
+            const sku = requiredText(args.sku, 'sku', 80);
+            const name = requiredText(args.name, 'name', 200);
+            const category = requiredText(args.category, 'category', 80);
+            const baseUnit = requiredText(args.base_unit, 'base_unit', 40);
+            const verticalKey = requiredText(args.vertical_key, 'vertical_key', 40);
+            if (!/^[a-z][a-z0-9_]{0,39}$/.test(verticalKey)) throw new AppError('INVALID_REQUEST', 400, 'vertical_key has an invalid format.');
+            const verticals = await deps.gateway.listVerticals?.();
+            if (!verticals?.some((vertical) => vertical.active && vertical.vertical_key === verticalKey)) throw new AppError('INVALID_VERTICAL', 422, 'Select an active commerce vertical.');
+            const description = args.description === undefined ? '' : typeof args.description === 'string' && args.description.length <= 4000 ? args.description.trim() : (() => { throw new AppError('INVALID_REQUEST', 400, 'description must be a string no longer than 4000 characters.'); })();
+            const attributes = args.attributes === undefined ? {} : productAttributes(args.attributes);
+            if (typeof args.requires_design !== 'boolean' || typeof args.requires_size !== 'boolean') throw new AppError('INVALID_REQUEST', 400, 'requires_design and requires_size must be booleans.');
+            entityId = await deps.gateway.createProduct({ sku, name, category, base_unit: baseUnit, description, vertical_key: verticalKey, attributes, requires_design: args.requires_design, requires_size: args.requires_size, active: false });
+            entityType = 'product';
+            actionResult = { product_id: entityId, sku, name, vertical_key: verticalKey, active: false, next_step: 'Manager must add a variant, approved price rule, and stock before publishing.' };
+          } else if (name === 'create_material') {
             if (!deps.gateway.createMaterial) throw new AppError('MATERIAL_ADMIN_UNAVAILABLE', 503, 'Material administration is unavailable.');
             entityId = await deps.gateway.createMaterial({
               sku: requiredText(args.sku, 'sku', 80), name: requiredText(args.name, 'name', 200),
@@ -500,6 +685,14 @@ export function createApiServer(deps: Dependencies): Server {
               if (typeof args.description !== 'string' || args.description.length > 4000) throw new AppError('INVALID_REQUEST', 400, 'description must be a string no longer than 4000 characters.');
               changes.description = args.description.trim();
             }
+            if (args.vertical_key !== undefined) {
+              const verticalKey = requiredText(args.vertical_key, 'vertical_key', 40);
+              if (!/^[a-z][a-z0-9_]{0,39}$/.test(verticalKey)) throw new AppError('INVALID_REQUEST', 400, 'vertical_key has an invalid format.');
+              const verticals = await deps.gateway.listVerticals?.();
+              if (!verticals?.some((vertical) => vertical.active && vertical.vertical_key === verticalKey)) throw new AppError('INVALID_VERTICAL', 422, 'Select an active commerce vertical.');
+              changes.vertical_key = verticalKey;
+            }
+            if (args.attributes !== undefined) changes.attributes = productAttributes(args.attributes);
             if (args.active !== undefined) {
               if (typeof args.active !== 'boolean') throw new AppError('INVALID_REQUEST', 400, 'active must be a boolean.');
               changes.active = args.active;
@@ -519,24 +712,38 @@ export function createApiServer(deps: Dependencies): Server {
             await deps.gateway.updateProductionStatus(entityId, status as ProductionStatus);
             entityType = 'production_job'; actionResult = { production_job_id: entityId, status };
           }
-          let auditLogged = false;
-          try {
-            await deps.gateway.recordAuditLog({ userId: managerId, action: `hermes.${name}.completed`, entityType, entityId, metadata: { source: 'hermes', reason, action_id: approvalId, result: actionResult } });
-            auditLogged = true;
+          await deps.gateway.finishHermesActionProposal({ id: approvalId, status: 'completed', result: actionResult });
           } catch (error) {
-            console.error(JSON.stringify({ level: 'error', event: 'hermes.action.audit_failed', action: name, entity_type: entityType, entity_id: entityId, error_code: error instanceof AppError ? error.code : 'AUDIT_WRITE_FAILED' }));
+            try {
+              await deps.gateway.finishHermesActionProposal({ id: approvalId, status: 'failed', result: null, errorCode: error instanceof AppError ? error.code : 'ACTION_FAILED' });
+            } catch (auditError) {
+              console.error(JSON.stringify({ level: 'error', event: 'hermes.action.finalize_failed', action: name, action_id: approvalId, error_code: auditError instanceof AppError ? auditError.code : 'FINALIZE_FAILED' }));
+            }
+            throw error;
           }
-          pendingHermesActions.delete(approvalId);
-          send(response, 200, { ...actionResult, audit_logged: auditLogged });
+          send(response, 200, { ...actionResult, audit_logged: true });
           return;
         }
 
+        if (name === 'list_store_verticals') {
+          if (!deps.gateway.listVerticals) throw new AppError('VERTICALS_UNAVAILABLE', 503, 'Commerce vertical configuration is not available on this server.');
+          send(response, 200, { verticals: await deps.gateway.listVerticals() });
+          return;
+        }
+        if (name === 'get_storefront_config') {
+          if (!deps.hermesManagerUserId || !['manager', 'admin'].includes(String(await deps.gateway.getRole(uuid(deps.hermesManagerUserId, 'hermes_manager_user_id'))))) {
+            throw new AppError('FORBIDDEN', 403, 'Storefront configuration is available only to the configured manager.');
+          }
+          const current = await deps.gateway.getStorefrontConfig?.();
+          send(response, 200, { config: current?.config ?? defaultStorefrontConfig, version: current?.version ?? 0 });
+          return;
+        }
         if (name === 'list_manager_products') {
           const products = await deps.gateway.listProducts('', true);
           send(response, 200, { products: products.map((value) => {
             const product = value as Record<string, unknown>;
-            return { id: product.id, sku: product.sku, name: product.name, category: product.category, active: product.active,
-              variants: Array.isArray(product.product_variants) ? (product.product_variants as Array<Record<string, unknown>>).map((variant) => ({ id: variant.id, sku: variant.sku, name: variant.name, active: variant.active })) : [] };
+            return { id: product.id, sku: product.sku, name: product.name, category: product.category, vertical_key: product.vertical_key, attributes: product.attributes, active: product.active,
+              variants: Array.isArray(product.product_variants) ? (product.product_variants as Array<Record<string, unknown>>).map((variant) => ({ id: variant.id, sku: variant.sku, name: variant.name, attributes: variant.attributes, active: variant.active })) : [] };
           }) });
           return;
         }
@@ -590,6 +797,74 @@ export function createApiServer(deps: Dependencies): Server {
       if (!role) throw new AppError('FORBIDDEN', 403, 'This account has no PrintShop AI profile.');
       const actor: Actor = { id: actorUser.id, role };
 
+      if (method === 'GET' && path === '/api/manager/automations/events') {
+        requireRole(actor, ['manager','admin']);
+        if (!deps.gateway.listAutomationEvents) throw new AppError('AUTOMATION_UNAVAILABLE', 503, 'Automation delivery history is not available on this server.');
+        const events = await deps.gateway.listAutomationEvents();
+        send(response, 200, { events: events.map((row) => ({
+          id: row.id, event_type: row.event_type, status: row.status, attempt_count: row.attempt_count,
+          available_at: row.available_at, delivered_at: row.delivered_at, created_at: row.created_at,
+          last_error: typeof row.last_error === 'string' ? row.last_error.replace(/(?:sb_secret_|eyJ[a-zA-Z0-9._-]{12,}|Bearer\s+\S+)/gi, '[redacted]').slice(0, 200) : null
+        })) });
+        return;
+      }
+
+      if (method === 'GET' && path === '/api/manager/automations/overview') {
+        requireRole(actor, ['manager','admin']);
+        const overview = deps.n8nManagement
+          ? await deps.n8nManagement.overview()
+          : { status: 'not_configured' as const, workflows: [], executions: [] };
+        send(response, 200, overview);
+        return;
+      }
+      const automationRetryMatch = method === 'POST' ? /^\/api\/manager\/automations\/events\/([^/]+)\/retry$/.exec(path) : null;
+      if (automationRetryMatch) {
+        requireRole(actor, ['manager','admin']);
+        if (!deps.gateway.retryDeadAutomationEvent) throw new AppError('AUTOMATION_UNAVAILABLE', 503, 'Automation retry is not available on this server.');
+        const eventId = uuid(decodePathSegment(automationRetryMatch[1], 'event_id'), 'event_id');
+        if (!await deps.gateway.retryDeadAutomationEvent(actor.id, eventId)) throw new AppError('AUTOMATION_EVENT_NOT_RETRYABLE', 409, 'Only dead automation events can be retried.');
+        send(response, 200, { retried: true, event_id: eventId });
+        return;
+      }
+
+      if (method === 'GET' && path === '/api/manager/storefront') {
+        requireRole(actor, ['manager','admin']);
+        if (!deps.gateway.getStorefrontConfig || !deps.gateway.listStorefrontRevisions) throw new AppError('STOREFRONT_UNAVAILABLE', 503, 'Storefront configuration is not available on this server.');
+        const [published, revisions] = await Promise.all([deps.gateway.getStorefrontConfig(), deps.gateway.listStorefrontRevisions()]);
+        send(response, 200, { published: published ?? { id: null, version: 1, config: defaultStorefrontConfig }, revisions });
+        return;
+      }
+      if (method === 'POST' && path === '/api/manager/storefront/drafts') {
+        requireRole(actor, ['manager','admin']);
+        if (!deps.gateway.createStorefrontConfigDraft) throw new AppError('STOREFRONT_UNAVAILABLE', 503, 'Storefront draft publishing is not available on this server.');
+        const body = await readJson(request);
+        const config = storefrontConfig(body.config);
+        const draft = await deps.gateway.createStorefrontConfigDraft(actor.id, config);
+        send(response, 201, { draft });
+        return;
+      }
+      const storefrontPublishMatch = method === 'POST' ? /^\/api\/manager\/storefront\/drafts\/([^/]+)\/publish$/.exec(path) : null;
+      if (storefrontPublishMatch) {
+        requireRole(actor, ['manager','admin']);
+        if (!deps.gateway.publishStorefrontConfig) throw new AppError('STOREFRONT_UNAVAILABLE', 503, 'Storefront publishing is not available on this server.');
+        const revisionId = uuid(decodePathSegment(storefrontPublishMatch[1], 'revision_id'), 'revision_id');
+        send(response, 200, { revision: await deps.gateway.publishStorefrontConfig(actor.id, revisionId) });
+        return;
+      }
+
+      const productOptionsMatch = method === 'PUT' ? /^\/api\/manager\/products\/([^/]+)\/options$/.exec(path) : null;
+      if (productOptionsMatch) {
+        requireRole(actor, ['manager','admin']);
+        if (!deps.gateway.replaceProductOptions) throw new AppError('PRODUCT_ADMIN_UNAVAILABLE', 503, 'Product option management is not available on this server.');
+        const productId = uuid(decodePathSegment(productOptionsMatch[1], 'product_id'), 'product_id');
+        const body = await readJson(request);
+        const options = productOptionGroups(body.options);
+        const reason = requiredText(body.reason, 'reason', 500);
+        if (reason.length < 3) throw new AppError('INVALID_REQUEST', 400, 'reason must contain at least three characters.');
+        await deps.gateway.replaceProductOptions(actor.id, productId, options, reason);
+        send(response, 200, { product_id: productId, option_groups: options.length, status: 'updated' });
+        return;
+      }
       if (method === 'GET' && path === '/api/manager/products') {
         requireRole(actor, ['manager', 'admin']);
         send(response, 200, { products: await deps.gateway.listProducts('', true) });
@@ -603,10 +878,17 @@ export function createApiServer(deps: Dependencies): Server {
         if (body.requires_design !== undefined && typeof body.requires_design !== 'boolean') throw new AppError('INVALID_REQUEST', 400, 'requires_design must be a boolean.');
         if (body.requires_size !== undefined && typeof body.requires_size !== 'boolean') throw new AppError('INVALID_REQUEST', 400, 'requires_size must be a boolean.');
         if (body.active !== undefined && typeof body.active !== 'boolean') throw new AppError('INVALID_REQUEST', 400, 'active must be a boolean.');
+        const verticalKey = body.vertical_key === undefined ? 'printing' : requiredText(body.vertical_key, 'vertical_key', 40);
+        if (!/^[a-z][a-z0-9_]{0,39}$/.test(verticalKey)) throw new AppError('INVALID_REQUEST', 400, 'vertical_key has an invalid format.');
+        if (deps.gateway.listVerticals) {
+          const verticals = await deps.gateway.listVerticals();
+          if (!verticals.some((vertical) => vertical.active && vertical.vertical_key === verticalKey)) throw new AppError('INVALID_VERTICAL', 422, 'Select an active commerce vertical.');
+        } else if (verticalKey !== 'printing') throw new AppError('VERTICALS_UNAVAILABLE', 503, 'Commerce vertical configuration is not available on this server.');
         const id = await deps.gateway.createProduct({
           sku: requiredText(body.sku, 'sku', 80), name: requiredText(body.name, 'name', 200),
           category: requiredText(body.category, 'category', 80), base_unit: requiredText(body.base_unit, 'base_unit', 40),
           description: typeof body.description === 'string' ? body.description.trim().slice(0, 4000) : '',
+          vertical_key: verticalKey, attributes: productAttributes(body.attributes),
           requires_design: body.requires_design ?? false, requires_size: body.requires_size ?? false, active: body.active ?? true
         });
         send(response, 201, { product_id: id });
@@ -627,6 +909,15 @@ export function createApiServer(deps: Dependencies): Server {
             update[field] = requiredText(body[field], field, field === 'name' ? 200 : 80);
           }
         }
+        if (body.vertical_key !== undefined) {
+          const verticalKey = requiredText(body.vertical_key, 'vertical_key', 40);
+          if (!/^[a-z][a-z0-9_]{0,39}$/.test(verticalKey)) throw new AppError('INVALID_REQUEST', 400, 'vertical_key has an invalid format.');
+          if (!deps.gateway.listVerticals) throw new AppError('VERTICALS_UNAVAILABLE', 503, 'Commerce vertical configuration is not available on this server.');
+          const verticals = await deps.gateway.listVerticals();
+          if (!verticals.some((vertical) => vertical.active && vertical.vertical_key === verticalKey)) throw new AppError('INVALID_VERTICAL', 422, 'Select an active commerce vertical.');
+          update.vertical_key = verticalKey;
+        }
+        if (body.attributes !== undefined) update.attributes = productAttributes(body.attributes);
         if (body.active !== undefined) {
           if (typeof body.active !== 'boolean') throw new AppError('INVALID_REQUEST', 400, 'active must be a boolean.');
           update.active = body.active;
@@ -634,6 +925,15 @@ export function createApiServer(deps: Dependencies): Server {
         if (!Object.keys(update).length) throw new AppError('INVALID_REQUEST', 400, 'Provide at least one editable product field.');
         await deps.gateway.updateProduct(id, update);
         send(response, 200, { product_id: id, status: 'updated' });
+        return;
+      }
+      const promoteProductMatch = method === 'POST' ? /^\/api\/manager\/products\/([^/]+)\/promote$/.exec(path) : null;
+      if (promoteProductMatch) {
+        requireRole(actor, ['manager', 'admin']);
+        if (!deps.gateway.promoteDemoProduct) throw new AppError('PRODUCT_ADMIN_UNAVAILABLE', 503, 'Product sales approval is not configured on this server.');
+        const id = uuid(decodePathSegment(promoteProductMatch[1], 'product_id'), 'product_id');
+        await deps.gateway.promoteDemoProduct(actor.id, id);
+        send(response, 200, { product_id: id, demo_only: false, status: 'approved_for_sales' });
         return;
       }
       const variantCreateMatch = method === 'POST' ? /^\/api\/manager\/products\/([^/]+)\/variants$/.exec(path) : null;
@@ -647,6 +947,8 @@ export function createApiServer(deps: Dependencies): Server {
           width_cm: optionalDimension(body.width_cm, 'width_cm'), height_cm: optionalDimension(body.height_cm, 'height_cm'),
           material: typeof body.material === 'string' && body.material.trim() ? requiredText(body.material, 'material', 120) : null,
           finishing: typeof body.finishing === 'string' && body.finishing.trim() ? requiredText(body.finishing, 'finishing', 120) : null,
+          attributes: productAttributes(body.attributes),
+          available_quantity: body.available_quantity === undefined || body.available_quantity === null || body.available_quantity === '' ? null : nonnegativeWholeNumber(body.available_quantity, 'available_quantity'),
           active: true
         });
         send(response, 201, { variant_id: id });
@@ -667,8 +969,14 @@ export function createApiServer(deps: Dependencies): Server {
         }
         if (body.width_cm !== undefined) update.width_cm = optionalDimension(body.width_cm, 'width_cm');
         if (body.height_cm !== undefined) update.height_cm = optionalDimension(body.height_cm, 'height_cm');
+        if (body.available_quantity !== undefined) update.available_quantity = body.available_quantity === null || body.available_quantity === '' ? null : nonnegativeWholeNumber(body.available_quantity, 'available_quantity');
+        if (body.attributes !== undefined) update.attributes = productAttributes(body.attributes);
         if (!Object.keys(update).length) throw new AppError('INVALID_REQUEST', 400, 'Provide at least one editable variant field.');
         await deps.gateway.updateProductVariant(id, update);
+        if (update.available_quantity !== undefined && deps.gateway.recordAuditLog) {
+          try { await deps.gateway.recordAuditLog({ userId: actor.id, action: 'product_variant.production_capacity_updated', entityType: 'product_variant', entityId: id, metadata: { available_quantity: update.available_quantity } }); }
+          catch (cause) { console.error(JSON.stringify({ level: 'error', event: 'production_capacity.audit_failed', variant_id: id, error: cause instanceof AppError ? cause.code : 'AUDIT_WRITE_FAILED' })); }
+        }
         send(response, 200, { variant_id: id, status: 'updated' });
         return;
       }
@@ -779,35 +1087,23 @@ export function createApiServer(deps: Dependencies): Server {
         }
         aiRateLimiter.check(actor.id, 'manager_chat', 12);
         if (!deps.hermes) throw new AppError('HERMES_UNAVAILABLE', 503, 'Hermes chat is not configured on this server.');
-        let approvedActionId: string | undefined;
         const confirmation = /^I CONFIRM THIS CHANGE ([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i.exec(question.trim());
         const precedingAssistant = messages.at(-2);
-        if (confirmation && precedingAssistant?.role === 'assistant') {
+        if (confirmation && precedingAssistant?.role === 'assistant' && deps.gateway.approveHermesActionProposal) {
           const proposedId = confirmation[1].toLowerCase();
-          const pending = pendingHermesActions.get(proposedId);
-          if (pending && pending.managerId === actor.id && Date.now() - pending.createdAt <= 10 * 60_000 && precedingAssistant.content.toLowerCase().includes(proposedId)) {
-            approvedActionId = proposedId;
+          if (precedingAssistant.content.toLowerCase().includes(proposedId)
+            && await deps.gateway.approveHermesActionProposal(proposedId, actor.id)) {
+            console.log(JSON.stringify({ level: 'info', event: 'hermes.action.confirmed', request_id: requestId, action_id: proposedId }));
           }
         }
         const startedAt = Date.now();
         let completion: Awaited<ReturnType<HermesChatClient['complete']>>;
-        if (approvedActionId) {
-          const active = activeHermesApprovals.get(actor.id) ?? new Set<string>();
-          active.add(approvedActionId);
-          activeHermesApprovals.set(actor.id, active);
-        }
         try {
           completion = await deps.hermes.complete([{ role: 'system', content: hermesInstructions }, ...messages]);
         } catch (error) {
           try { await deps.gateway.recordAiRun({ feature: 'manager_chat', model: null, inputTokens: 0, outputTokens: 0, latencyMs: Date.now() - startedAt, success: false }); }
           catch (logError) { console.error('Could not record failed Hermes run.', logError); }
           throw error;
-        } finally {
-          if (approvedActionId) {
-            const active = activeHermesApprovals.get(actor.id);
-            active?.delete(approvedActionId);
-            if (active?.size === 0) activeHermesApprovals.delete(actor.id);
-          }
         }
         const latencyMs = Date.now() - startedAt;
         try {
@@ -1048,20 +1344,13 @@ export function createApiServer(deps: Dependencies): Server {
         const status = body.status;
         if (!['prepress', 'printing', 'finishing', 'quality_check', 'ready', 'cancelled'].includes(String(status))) throw new AppError('INVALID_REQUEST', 400, 'Invalid production status.');
         await deps.gateway.updateProductionStatus(id, status as ProductionStatus);
-        if (status === 'ready') {
-          const job = (await deps.gateway.listProduction()).find((item) => Boolean(item) && typeof item === 'object' && (item as Record<string, unknown>).id === id) as Record<string, unknown> | undefined;
-          if (job) {
-            const order = await deps.gateway.getOrder(String(job.order_id));
-            const customer = order?.customers && typeof order.customers === 'object' ? order.customers as Record<string, unknown> : {};
-            await dispatchN8n(deps, { type: 'order.ready', to_email: customer.email, customer_name: customer.name, order_id: job.order_id, production_job_id: id });
-          }
-        }
         send(response, 200, { production_job_id: id, status });
         return;
       }
 
       if (method === 'GET' && path === '/api/design-requests') {
-        requireRole(actor, ['customer', 'manager', 'sales', 'production', 'marketing', 'admin']);
+        // Marketing operates on campaign assets, not customers' private design briefs/files.
+        requireRole(actor, ['customer', 'manager', 'sales', 'production', 'admin']);
         const customerId = role === 'customer' ? await deps.gateway.getCustomerId(actor.id) : undefined;
         if (role === 'customer' && !customerId) throw new AppError('FORBIDDEN', 403, 'Customer profile not found.');
         send(response, 200, { design_requests: await deps.gateway.listDesignRequests(customerId ?? undefined) });
@@ -1136,10 +1425,6 @@ export function createApiServer(deps: Dependencies): Server {
         const body = await readJson(request);
         if (body.status !== 'approved' && body.status !== 'rejected') throw new AppError('INVALID_REQUEST', 400, 'status must be approved or rejected.');
         await deps.gateway.updateMarketingAssetStatus(id, body.status);
-        if (body.status === 'approved') {
-          const asset = (await deps.gateway.listMarketingAssets()).find((item) => Boolean(item) && typeof item === 'object' && (item as Record<string, unknown>).id === id) as Record<string, unknown> | undefined;
-          if (asset) await dispatchN8n(deps, { type: 'marketing.approved', to_email: deps.managerEmail, asset_id: id, platform: asset.platform, caption: asset.caption });
-        }
         send(response, 200, { asset_id: id, status: body.status });
         return;
       }

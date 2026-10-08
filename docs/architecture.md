@@ -6,17 +6,20 @@
 Customer / manager / staff
           │ Supabase Auth session
           ▼
-React + Vite app (apps/web) ── JSON API ──► Node.js API (apps/api)
+React + Vite app (apps/web) ── JSON API ──► API runtime (apps/api / Cloudflare Worker)
           │                                      │
           │ private Storage SDK                  ├── deterministic pricing/order/inventory rules
           ▼                                      ├── Hermes chat and marketing draft calls (opt-in)
 Supabase Auth + Storage + PostgreSQL ◄──────────┘
-                                                 │ operational webhooks
+Supabase transactional outbox ──► scheduled Cloudflare Worker ──► n8n event webhook
+                                                 │ report webhooks
                                                  ▼
-                                         n8n workflows (import/setup required)
+                                         n8n workflows + read-only runtime status
 ```
 
-The frontend is the locally coded React/Vite application in `apps/web`. It is not currently synced to an external Lovable project. Supabase remains the data source of truth; the Node API checks roles and applies business transitions. Supabase Storage is private and design uploads use short-lived signed links. Hermes is only used for manager chat or an explicitly requested marketing draft. n8n receives operational events after its workflows and credentials are configured.
+The frontend is the locally coded React/Vite application in `apps/web`. It is not currently synced to an external Lovable project. Supabase remains the data source of truth; the API checks roles and applies business transitions. Supabase Storage is private and design uploads use short-lived signed links. Hermes is used for manager chat or an explicitly requested marketing draft. The Hermes API-server platform is restricted to the `printshop-ai` MCP server, and its public read path has been verified through HTTPS. Order, product, inventory, production, storefront, and marketing events are written transactionally to an outbox and delivered by the scheduled Cloudflare Worker. The manager Automation page can show live n8n workflow/execution status when the server-only n8n API credential is configured; the current local n8n API has no such key, so that panel remains explicitly unconfigured.
+
+For off-laptop operation, `render.yaml` prepares persistent hosted n8n and Hermes services. Their first boot imports inactive workflows and restricts the Hermes API platform to the single `mcp-inkora` business toolset. This requires a Render Blueprint deployment, encrypted provider and service secrets, and n8n SMTP/API credentials; until those steps are completed, the existing local tunnel remains the active integration path. See [off-laptop hosting](online-hosting.md).
 
 ## Responsibilities and boundaries
 
@@ -27,7 +30,7 @@ The frontend is the locally coded React/Vite application in `apps/web`. It is no
 | Supabase PostgreSQL | Users, customers, products, price rules, quotes, orders, inventory ledger, jobs, designs, marketing assets, AI usage | Persistent business truth; mutation routines are transactional database functions |
 | Supabase Auth/Storage | Account sessions and private design/reference/final-art files | Public browser key only; object policies scope owners and authorized staff |
 | Hermes | Language understanding, manager Q&A, marketing copy | No database credentials or unrestricted SQL; no authority over prices or stock |
-| n8n | Low-stock/order-ready/approved-marketing notifications and daily report | Workflow engine only; no authoritative application state or automatic social publishing |
+| n8n | Workflow execution, external notifications, schedules, and integrations | Workflow engine only; no authoritative application state or automatic social publishing. Live management status uses a read-only server-side API client. |
 
 ## Key business paths
 
@@ -36,7 +39,7 @@ The frontend is the locally coded React/Vite application in `apps/web`. It is no
 1. Browser submits product SKU, quantity, and options.
 2. API selects a valid shop price rule and calculates the total. The EGP 2,100 demo price is valid only for 1,000 waterproof-vinyl stickers at 10×8 cm.
 3. Customer accepts; the database creates one order only from an accepted quote.
-4. The database requires configured material usage, checks/reserves real stock, records ledger rows, and creates a queued production job in the same transaction.
+4. The database reads the product vertical's capabilities. Printing orders require configured material usage, reserve real stock, and create a queued production job in the same transaction. Other verticals use configured variant availability without fake printing-material requirements or production jobs.
 5. Production moves through validated stages. Ready consumes reservations; delivery can be marked only from ready.
 
 ### Design service
@@ -49,14 +52,16 @@ Marketing is campaign-first and independent of customer orders. A manager or mar
 
 ### n8n
 
-The API posts low-stock, order-ready, and marketing-approved events to a shared-secret-protected n8n webhook. The daily schedule calls a separate API report endpoint authenticated with the same secret. Workflow JSON is committed under `n8n/workflows`; the n8n instance, SMTP credentials, webhook auth credential, and reachable API URL must be configured before activation.
+Order-created, order-ready, order-status, production-status, catalog, inventory, storefront, and approved-marketing events are delivered from the Supabase outbox to the shared-secret-protected n8n webhook. Delivery uses leased retries and is at-least-once; workflows should deduplicate by event ID. The event router sends actionable customer or manager email and ignores routine inventory updates. The scheduled reports call API endpoints authenticated with a shared secret. Workflow JSON is committed under `n8n/workflows`; workflow activation and downstream credentials are instance-specific. The manager console now reads actual workflow state and recent execution metadata through a server-only API adapter if `N8N_API_BASE_URL` and `N8N_API_KEY` are configured.
 
 ## Configuration and delivery status
 
+- `GET /health` is a liveness check. `GET /ready` checks that the API can read Supabase and reports whether Hermes and n8n are configured; it never returns credentials. Use `/ready` to distinguish an online Worker from an application whose database is unavailable.
+
 - Root `.env.example` lists backend-only keys; `apps/web/.env.example` lists browser-safe Supabase URL/publishable key and API URL.
 - The local API and frontend run with `npm start` and `npm run dev:web`.
-- Supabase schema and incremental migrations through `20261003001000` are applied to the linked project. The 2026-10-03 CLI transport problem was caused by Avast HTTPS certificate inspection; no manual migration-history changes were needed.
-- The owner account has already been promoted to manager and n8n has been created/configured in the project setup conversation. Email delivery still requires an SMTP credential and workflow activation must be verified in the actual n8n instance.
+- Supabase schema and incremental migrations through `20261008001000` are applied to the linked project. The cross-vertical order-flow SQL assertions passed through the linked database query runner.
+- The public Worker readiness endpoint currently reports the Supabase database, Hermes HTTPS gateway, and n8n webhook host reachable. Hermes business read tools have passed live HTTPS calls. The n8n management API key has not been configured; email delivery and workflow activation are not implied by n8n health or the saved workflow files.
 - The UI is the repository's custom React/Vite app. A Lovable project is not connected.
 - Payment, social-media publishing, production hosting, and domain setup are not implemented/configured in this checkout.
 

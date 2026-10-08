@@ -1,11 +1,13 @@
-import type { PricingRepository, PriceRule, Variant } from './pricing.ts';
+import type { PricingRepository, PriceRule, ProductOptionGroup, Variant } from './pricing.ts';
 import { AppError } from './errors.ts';
-import type { AuthGateway, DesignRequestStatus, InventoryCommand, OrderStatus, ProductionStatus, QuoteStatus, Role } from './api.ts';
+import type { AuthGateway, CommerceVertical, DesignRequestStatus, InventoryCommand, OrderStatus, ProductionStatus, QuoteStatus, Role, StorefrontConfig } from './api.ts';
+import type { AutomationEvent } from './automation-outbox.ts';
 
 type SupabaseUser = { id: string };
 const SUPABASE_REQUEST_TIMEOUT_MS = 15_000;
 
-const PUBLIC_PRODUCT_SELECT = 'id,sku,name,category,description,base_unit,requires_design,requires_size,product_variants!inner(id,sku,name,width_cm,height_cm,material,finishing,public_price,price_type,market_references(quantity,min_price,max_price,currency,source_name,source_url,source_date),price_rules!inner(id,active_from,active_to))';
+const PRODUCT_OPTIONS_SELECT = 'product_option_groups(id,option_key,label_en,label_ar,required,active,display_order,product_option_values(id,value_key,label_en,label_ar,adjustment_type,price_adjustment,active,display_order))';
+const PUBLIC_PRODUCT_SELECT = `id,sku,name,category,description,base_unit,vertical_key,attributes,requires_design,requires_size,demo_only,${PRODUCT_OPTIONS_SELECT},product_variants!inner(id,sku,name,width_cm,height_cm,material,finishing,available_quantity,attributes,public_price,price_type,market_references(quantity,min_price,max_price,currency,source_name,source_url,source_date),price_rules!inner(id,active_from,active_to))`;
 
 function shopDate(): string {
   const parts = new Intl.DateTimeFormat('en', {
@@ -18,6 +20,12 @@ function shopDate(): string {
 function filterPublicProducts(rows: Array<Record<string, unknown>>, today: string): Array<Record<string, unknown>> {
   return rows.map((product) => ({
     ...product,
+    product_option_groups: Array.isArray(product.product_option_groups)
+      ? (product.product_option_groups as Array<Record<string, unknown>>).filter((group) => group.active !== false).map((group) => ({
+          ...group,
+          values: Array.isArray(group.values) ? (group.values as Array<Record<string, unknown>>).filter((option) => option.active !== false) : []
+        }))
+      : [],
     product_variants: Array.isArray(product.product_variants)
       ? (product.product_variants as Array<Record<string, unknown>>).flatMap((variant) => {
           const rules = Array.isArray(variant.price_rules)
@@ -33,6 +41,23 @@ function filterPublicProducts(rows: Array<Record<string, unknown>>, today: strin
         })
       : []
   })).filter((product) => (product.product_variants as unknown[]).length > 0);
+}
+
+function normalizeProductOptionGroups(rows: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  return rows.map((product) => ({
+    ...product,
+    product_option_groups: Array.isArray(product.product_option_groups)
+      ? (product.product_option_groups as Array<Record<string, unknown>>).map((group) => ({
+          id: group.id, key: group.option_key, label_en: group.label_en, label_ar: group.label_ar,
+          required: group.required, active: group.active, display_order: group.display_order,
+          values: Array.isArray(group.product_option_values) ? (group.product_option_values as Array<Record<string, unknown>>).map((value) => ({
+            id: value.id, key: value.value_key, label_en: value.label_en, label_ar: value.label_ar,
+            adjustment_type: value.adjustment_type, price_adjustment: value.price_adjustment,
+            active: value.active, display_order: value.display_order
+          })) : []
+        }))
+      : []
+  }));
 }
 
 function requiredEnv(name: string): string {
@@ -53,6 +78,32 @@ export class SupabaseGateway implements PricingRepository, AuthGateway {
   private readonly url = requiredEnv('SUPABASE_URL').replace(/\/$/, '');
   private readonly publishableKey = firstConfigured('SUPABASE_PUBLISHABLE_KEY', 'SUPABASE_ANON_KEY');
   private readonly secretKey = firstConfigured('SUPABASE_SECRET_KEY', 'SUPABASE_SERVICE_ROLE_KEY');
+
+  async checkDatabaseReady(): Promise<void> {
+    const query = new URLSearchParams({ select: 'id', limit: '1' });
+    await this.rest<Array<{ id: string }>>(`products?${query}`);
+  }
+
+  async claimIntegrationEvents(limit: number): Promise<AutomationEvent[]> {
+    return await this.rpc<AutomationEvent[]>('claim_integration_events', { p_limit: limit });
+  }
+
+  async completeIntegrationEvent(id: string): Promise<void> {
+    await this.rpc('complete_integration_event', { p_id: id });
+  }
+
+  async retryIntegrationEvent(id: string, delaySeconds: number, error: string): Promise<void> {
+    await this.rpc('retry_integration_event', { p_id: id, p_delay_seconds: delaySeconds, p_error: error });
+  }
+
+  async listAutomationEvents(): Promise<Array<Record<string, unknown>>> {
+    const query = new URLSearchParams({ select: 'id,event_type,status,attempt_count,available_at,delivered_at,created_at,last_error', order: 'created_at.desc', limit: '100' });
+    return await this.rest<Array<Record<string, unknown>>>(`integration_outbox?${query}`);
+  }
+
+  async retryDeadAutomationEvent(actorId: string, eventId: string): Promise<boolean> {
+    return await this.rpc<boolean>('retry_dead_integration_event', { p_actor_id: actorId, p_event_id: eventId });
+  }
 
   async authenticate(accessToken: string): Promise<SupabaseUser> {
     let response: Response;
@@ -118,6 +169,21 @@ export class SupabaseGateway implements PricingRepository, AuthGateway {
           'There is not enough available material to start this order. The manager must restock or update the shop inventory before retrying.'
         );
       }
+      if (path === 'rpc/create_order_from_accepted_quote'
+        && upstreamCode === '22023'
+        && upstreamMessage.startsWith('PRODUCTION_CAPACITY_INSUFFICIENT:')) {
+        throw new AppError(
+          'PRODUCTION_CAPACITY_INSUFFICIENT',
+          409,
+          'The shop no longer has enough production capacity for this quantity. Please refresh the product options or contact the shop.'
+        );
+      }
+      if (path === 'rpc/create_order_from_accepted_quote' && upstreamCode === '22023' && upstreamMessage.startsWith('DEMO_ONLY_PRODUCTS:')) {
+        throw new AppError('DEMO_ONLY_PRODUCT', 409, 'This sample catalog item is not available for sale. A manager must approve its shop prices first.');
+      }
+      if (path === 'rpc/promote_demo_product' && upstreamCode === '22023') {
+        throw new AppError('DEMO_PRODUCT_NOT_READY', 409, upstreamMessage);
+      }
       throw new AppError('DATABASE_ERROR', 502, 'The database request could not be completed.');
     }
     return (text ? JSON.parse(text) : undefined) as T;
@@ -143,11 +209,25 @@ export class SupabaseGateway implements PricingRepository, AuthGateway {
 
   async getVariantBySku(sku: string): Promise<Variant | null> {
     const query = new URLSearchParams({
-      select: 'id,sku,name,material,products!inner(active)', sku: `eq.${sku}`,
+      select: 'id,sku,name,material,available_quantity,product_id,products!inner(active,demo_only)', sku: `eq.${sku}`,
       active: 'eq.true', 'products.active': 'eq.true', limit: '1'
     });
-    const rows = await this.rest<Array<Variant & { products: { active: boolean } }>>(`product_variants?${query}`);
-    return rows[0] ?? null;
+    const rows = await this.rest<Array<Variant & { products: { active: boolean; demo_only: boolean } }>>(`product_variants?${query}`);
+    return rows[0] ? { ...rows[0], demo_only: rows[0].products.demo_only } : null;
+  }
+
+  async getProductOptionGroups(productId: string): Promise<ProductOptionGroup[]> {
+    const query = new URLSearchParams({
+      select: 'option_key,label_en,label_ar,required,product_option_values!inner(value_key,label_en,label_ar,adjustment_type,price_adjustment)',
+      product_id: `eq.${productId}`, active: 'eq.true', order: 'display_order.asc'
+    });
+    query.set('product_option_values.active', 'eq.true');
+    const rows = await this.rest<Array<{ option_key: string; label_en: string; label_ar: string; required: boolean; product_option_values: Array<{ value_key: string; label_en: string; label_ar: string; adjustment_type: 'per_unit'|'one_time'; price_adjustment: string|number }> }>>(`product_option_groups?${query}`);
+    return rows.map((group) => ({ key: group.option_key, label_en: group.label_en, label_ar: group.label_ar, required: group.required, values: group.product_option_values.map((value) => ({ key: value.value_key, label_en: value.label_en, label_ar: value.label_ar, adjustment_type: value.adjustment_type, price_adjustment: value.price_adjustment })) }));
+  }
+
+  async replaceProductOptions(actorId: string, productId: string, options: ProductOptionGroup[], reason: string): Promise<void> {
+    await this.rpc('replace_product_options', { p_actor_id: actorId, p_product_id: productId, p_options: options.map((group) => ({ key: group.key, label_en: group.label_en, label_ar: group.label_ar, required: group.required, values: group.values.map((value) => ({ key: value.key, label_en: value.label_en, label_ar: value.label_ar, adjustment_type: value.adjustment_type, price_adjustment: value.price_adjustment })) })), p_reason: reason });
   }
 
   async getPriceRules(variantId: string): Promise<PriceRule[]> {
@@ -176,7 +256,7 @@ export class SupabaseGateway implements PricingRepository, AuthGateway {
   async listProducts(search = '', includeInactive = false): Promise<unknown[]> {
     const query = new URLSearchParams({
       select: includeInactive
-        ? 'id,sku,name,category,description,base_unit,active,requires_design,requires_size,product_variants(id,sku,name,width_cm,height_cm,material,finishing,active,price_rules(id,quantity_min,quantity_max,material,finishing,unit_price,fixed_fee,setup_fee,design_fee,installation_fee,delivery_fee,tax_rate,active_from,active_to))'
+        ? `id,sku,name,category,description,base_unit,vertical_key,attributes,active,requires_design,requires_size,demo_only,${PRODUCT_OPTIONS_SELECT},product_variants(id,sku,name,width_cm,height_cm,material,finishing,available_quantity,attributes,active,price_rules(id,quantity_min,quantity_max,material,finishing,unit_price,fixed_fee,setup_fee,design_fee,installation_fee,delivery_fee,tax_rate,active_from,active_to))`
         : PUBLIC_PRODUCT_SELECT,
       order: 'name.asc', limit: '500'
     });
@@ -184,8 +264,11 @@ export class SupabaseGateway implements PricingRepository, AuthGateway {
       query.set('active', 'eq.true');
       query.set('product_variants.active', 'eq.true');
       query.set('product_variants.price_rules.active_from', `lte.${shopDate()}`);
+      query.set('product_option_groups.active', 'eq.true');
+      query.set('product_option_groups.product_option_values.active', 'eq.true');
     }
     let rows = await this.rest<Array<Record<string, unknown>>>(`products?${query}`);
+    rows = normalizeProductOptionGroups(rows);
     if (!includeInactive) {
       // A public catalog must not advertise variants that fail the deterministic
       // quote engine with PRICE_RULE_NOT_FOUND. Strip even rule metadata from the
@@ -197,6 +280,13 @@ export class SupabaseGateway implements PricingRepository, AuthGateway {
     return rows.filter((row) => [row.name, row.sku, row.category, row.description].some((value) => typeof value === 'string' && value.toLocaleLowerCase().includes(term)));
   }
 
+  async listVerticals(): Promise<CommerceVertical[]> {
+    const query = new URLSearchParams({
+      select: 'vertical_key,label_en,label_ar,capabilities,active', active: 'eq.true', order: 'label_en.asc', limit: '100'
+    });
+    return await this.rest<CommerceVertical[]>(`commerce_verticals?${query}`);
+  }
+
   async getProduct(id: string): Promise<Record<string, unknown> | null> {
     const query = new URLSearchParams({
       select: PUBLIC_PRODUCT_SELECT,
@@ -204,8 +294,29 @@ export class SupabaseGateway implements PricingRepository, AuthGateway {
     });
     query.set('product_variants.active', 'eq.true');
     query.set('product_variants.price_rules.active_from', `lte.${shopDate()}`);
+    query.set('product_option_groups.active', 'eq.true');
+    query.set('product_option_groups.product_option_values.active', 'eq.true');
     const rows = await this.rest<Array<Record<string, unknown>>>(`products?${query}`);
-    return filterPublicProducts(rows, shopDate())[0] ?? null;
+    return filterPublicProducts(normalizeProductOptionGroups(rows), shopDate())[0] ?? null;
+  }
+
+  async getStorefrontConfig(): Promise<{ id: string; version: number; config: StorefrontConfig } | null> {
+    const query = new URLSearchParams({ select: 'id,version,config', status: 'eq.published', order: 'version.desc', limit: '1' });
+    const rows = await this.rest<Array<{ id: string; version: number; config: StorefrontConfig }>>(`storefront_config_revisions?${query}`);
+    return rows[0] ?? null;
+  }
+
+  async listStorefrontRevisions(): Promise<unknown[]> {
+    const query = new URLSearchParams({ select: 'id,version,config,status,created_by,created_at,published_at', order: 'version.desc', limit: '30' });
+    return await this.rest<unknown[]>(`storefront_config_revisions?${query}`);
+  }
+
+  async createStorefrontConfigDraft(actorId: string, config: StorefrontConfig): Promise<{ id: string; version: number; status: string }> {
+    return await this.rpc('create_storefront_config_draft', { p_actor_id: actorId, p_config: config });
+  }
+
+  async publishStorefrontConfig(actorId: string, revisionId: string): Promise<{ id: string; version: number; status: string }> {
+    return await this.rpc('publish_storefront_config', { p_actor_id: actorId, p_revision_id: revisionId });
   }
 
   async createProduct(input: Record<string, unknown>): Promise<string> {
@@ -221,6 +332,10 @@ export class SupabaseGateway implements PricingRepository, AuthGateway {
       method: 'PATCH', headers: { prefer: 'return=representation' }, body: JSON.stringify(input)
     });
     if (!rows.length) throw new AppError('NOT_FOUND', 404, 'Product not found.');
+  }
+
+  async promoteDemoProduct(actorId: string, id: string): Promise<void> {
+    await this.rpc('promote_demo_product', { p_actor_id: actorId, p_product_id: id });
   }
 
   async createProductVariant(productId: string, input: Record<string, unknown>): Promise<string> {
@@ -440,6 +555,28 @@ export class SupabaseGateway implements PricingRepository, AuthGateway {
     await this.rest('audit_logs', {
       method: 'POST', headers: { prefer: 'return=minimal' },
       body: JSON.stringify({ user_id: input.userId, action: input.action, entity_type: input.entityType, entity_id: input.entityId, metadata: input.metadata })
+    });
+  }
+
+  async createHermesActionProposal(input: { id: string; managerId: string; action: string; arguments: Record<string, unknown> }): Promise<string> {
+    return await this.rpc<string>('create_hermes_action_proposal', {
+      p_id: input.id, p_manager_id: input.managerId, p_action_name: input.action, p_arguments: input.arguments
+    });
+  }
+
+  async approveHermesActionProposal(id: string, managerId: string): Promise<boolean> {
+    return await this.rpc<boolean>('approve_hermes_action_proposal', { p_id: id, p_manager_id: managerId });
+  }
+
+  async claimHermesActionProposal(input: { id: string; managerId: string; action: string; arguments: Record<string, unknown> }): Promise<boolean> {
+    return await this.rpc<boolean>('claim_hermes_action_proposal', {
+      p_id: input.id, p_manager_id: input.managerId, p_action_name: input.action, p_arguments: input.arguments
+    });
+  }
+
+  async finishHermesActionProposal(input: { id: string; status: 'completed' | 'failed'; result: Record<string, unknown> | null; errorCode?: string }): Promise<void> {
+    await this.rpc('finish_hermes_action_proposal', {
+      p_id: input.id, p_status: input.status, p_result: input.result, p_error_code: input.errorCode ?? null
     });
   }
 

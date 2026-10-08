@@ -8,6 +8,7 @@ export type QuoteLineInput = {
   design_required?: boolean;
   delivery_required?: boolean;
   installation_required?: boolean;
+  custom_options?: Record<string, string>;
   notes?: string;
 };
 
@@ -16,7 +17,13 @@ export type Variant = {
   sku: string;
   name: string;
   material: string | null;
+  available_quantity?: number | null;
+  demo_only?: boolean;
+  product_id?: string;
 };
+
+export type ProductOptionValue = { key: string; label_en: string; label_ar: string; adjustment_type: 'per_unit' | 'one_time'; price_adjustment: string | number };
+export type ProductOptionGroup = { key: string; label_en: string; label_ar: string; required: boolean; values: ProductOptionValue[] };
 
 export type PriceRule = {
   id: string;
@@ -41,6 +48,7 @@ export type PriceRule = {
 export type PricingRepository = {
   getVariantBySku(sku: string): Promise<Variant | null>;
   getPriceRules(variantId: string): Promise<PriceRule[]>;
+  getProductOptionGroups?(productId: string): Promise<ProductOptionGroup[]>;
 };
 
 type Cents = bigint;
@@ -123,6 +131,9 @@ function validateLine(input: QuoteLineInput, index: number): void {
       throw new AppError('INVALID_REQUEST', 400, `items[${index}].${key} must be a boolean.`);
     }
   }
+  if (input.custom_options !== undefined && (!input.custom_options || typeof input.custom_options !== 'object' || Array.isArray(input.custom_options) || Object.keys(input.custom_options).length > 30 || Object.entries(input.custom_options).some(([key, value]) => !/^[a-z][a-z0-9_]{0,39}$/.test(key) || typeof value !== 'string' || value.length > 80))) {
+    throw new AppError('INVALID_REQUEST', 400, `items[${index}].custom_options must map option keys to short string values.`);
+  }
 }
 
 export type CalculatedLine = {
@@ -134,7 +145,7 @@ export type CalculatedLine = {
   quantity: number;
   unit_price: string;
   design_required: boolean;
-  options: Record<string, string | boolean>;
+  options: Record<string, unknown>;
   notes: string | null;
   breakdown: {
     base: string;
@@ -147,6 +158,7 @@ export type CalculatedLine = {
     tax_rate: string;
     tax: string;
     total: string;
+    option_surcharge: string;
   };
 };
 
@@ -163,6 +175,10 @@ export async function calculateQuote(
     validateLine(input, index);
     const variant = await repository.getVariantBySku(input.variant_sku.trim());
     if (!variant) throw new AppError('PRODUCT_NOT_FOUND', 404, `Active product variant ${input.variant_sku} was not found.`);
+    if (variant.demo_only) throw new AppError('DEMO_ONLY_PRODUCT', 409, `${variant.sku} is a sample item and is not available for sale. A manager must review and approve shop prices first.`);
+    if (variant.available_quantity !== undefined && variant.available_quantity !== null && input.quantity > variant.available_quantity) {
+      throw new AppError('PRODUCTION_CAPACITY_INSUFFICIENT', 409, `Only ${variant.available_quantity} units of ${variant.sku} are currently available for production.`);
+    }
     const material = input.material?.trim() || variant.material || undefined;
     if (input.material && variant.material && normalize(input.material) !== normalize(variant.material)) {
       throw new AppError('INVALID_OPTION', 422, `Material ${input.material} is not available for ${variant.sku}.`);
@@ -171,13 +187,36 @@ export async function calculateQuote(
     const rules = await repository.getPriceRules(variant.id);
     const rule = selectRule(rules, normalizedInput, variant, today);
 
+    const requestedOptions = input.custom_options ?? {};
+    let optionSurcharge = 0n;
+    const optionSnapshot: Record<string, { value: string; label_en: string; label_ar: string; adjustment_type: 'per_unit' | 'one_time'; price_adjustment: string }> = {};
+    if (Object.keys(requestedOptions).length && (!variant.product_id || !repository.getProductOptionGroups)) {
+      throw new AppError('INVALID_OPTION', 422, 'Custom product options are not available for this item.');
+    }
+    const optionGroups = variant.product_id && repository.getProductOptionGroups ? await repository.getProductOptionGroups(variant.product_id) : [];
+    for (const key of Object.keys(requestedOptions)) if (!optionGroups.some((group) => group.key === key)) {
+      throw new AppError('INVALID_OPTION', 422, `Option ${key} is not configured for ${variant.sku}.`);
+    }
+    for (const group of optionGroups) {
+      const selectedKey = requestedOptions[group.key];
+      if (selectedKey === undefined) {
+        if (group.required) throw new AppError('OPTION_REQUIRED', 422, `Choose ${group.label_en} for ${variant.sku}.`);
+        continue;
+      }
+      const selected = group.values.find((option) => option.key === selectedKey);
+      if (!selected) throw new AppError('INVALID_OPTION', 422, `The selected ${group.label_en} is not available for ${variant.sku}.`);
+      const adjustment = moneyToCents(selected.price_adjustment, 'product option price adjustment');
+      optionSurcharge += selected.adjustment_type === 'per_unit' ? adjustment * BigInt(input.quantity) : adjustment;
+      optionSnapshot[group.key] = { value: selected.key, label_en: selected.label_en, label_ar: selected.label_ar, adjustment_type: selected.adjustment_type, price_adjustment: centsToMoney(adjustment) };
+    }
+
     const base = moneyToCents(rule.unit_price, 'unit_price') * BigInt(input.quantity);
     const fixed = moneyToCents(rule.fixed_fee, 'fixed_fee');
     const setup = moneyToCents(rule.setup_fee, 'setup_fee');
     const design = input.design_required ? moneyToCents(rule.design_fee, 'design_fee') : 0n;
     const installation = input.installation_required ? moneyToCents(rule.installation_fee, 'installation_fee') : 0n;
     const delivery = input.delivery_required ? moneyToCents(rule.delivery_fee, 'delivery_fee') : 0n;
-    const subtotal = base + fixed + setup + design + installation + delivery;
+    const subtotal = base + fixed + setup + design + installation + delivery + optionSurcharge;
     const rate = rateToUnits(rule.tax_rate);
     if (rate > RATE_SCALE) throw new AppError('INVALID_PRICE_RULE', 500, 'Configured tax_rate exceeds 100%.');
     const tax = (subtotal * rate + RATE_SCALE / 2n) / RATE_SCALE;
@@ -195,6 +234,7 @@ export async function calculateQuote(
       options: {
         ...(material ? { material } : {}),
         ...(input.finishing?.trim() ? { finishing: input.finishing.trim() } : {}),
+        ...(Object.keys(optionSnapshot).length ? { custom_options: optionSnapshot } : {}),
         design_fee: centsToMoney(design),
         delivery_required: input.delivery_required ?? false,
         installation_required: input.installation_required ?? false
@@ -202,7 +242,7 @@ export async function calculateQuote(
       notes: input.notes?.trim() || null,
       breakdown: {
         base: centsToMoney(base), fixed_fee: centsToMoney(fixed), setup_fee: centsToMoney(setup),
-        design_fee: centsToMoney(design), installation_fee: centsToMoney(installation), delivery_fee: centsToMoney(delivery),
+        design_fee: centsToMoney(design), installation_fee: centsToMoney(installation), delivery_fee: centsToMoney(delivery), option_surcharge: centsToMoney(optionSurcharge),
         subtotal: centsToMoney(subtotal), tax_rate: String(rule.tax_rate), tax: centsToMoney(tax), total: centsToMoney(total)
       }
     };

@@ -5,6 +5,9 @@
 .dev.vars
 .wrangler/
 n8n/.env
+n8n/backups/
+n8n/.owner-password.dpapi
+.runtime-logs/
 
 # Dependencies and build output
 node_modules/

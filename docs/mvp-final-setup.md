@@ -17,9 +17,9 @@ Create/sign in to the owner account in the app first, then use Supabase SQL Edit
 
 ## n8n and notifications
 
-1. The local n8n instance already contains four published workflows (daily, weekly, monthly, and event notifications). Do not import duplicates.
-2. The Header Auth and SMTP credentials and root webhook settings are configured locally. All four workflows have successful test executions.
-3. Keep Docker Desktop and n8n running for the schedules and event webhook to operate. After changing workflow settings, publish the updated workflow and verify the latest n8n execution.
+1. The current local n8n instance contains four imported workflows (daily, weekly, monthly, and event notifications); all are inactive. Do not import duplicates.
+2. Current instance audit shows zero saved SMTP/Header Auth credentials and zero executions. Configure credentials in n8n, test email and webhook delivery, then activate the workflows. Earlier setup notes referred to another instance/state and are superseded by this check.
+3. Keep Docker Desktop and n8n running for schedules and event delivery. After changing workflow settings, publish the updated workflow and verify a fresh execution and delivered email.
 
 ## Start and check the app
 

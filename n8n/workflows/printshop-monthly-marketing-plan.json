@@ -36,7 +36,7 @@
       },
       {
         "parameters": {
-          "fromEmail": "={{ $env.PRINTSHOP_REPORT_FROM_EMAIL }}",
+          "fromEmail": "inkora@example.com",
           "toEmail": "={{ $json.to_email }}",
           "subject": "={{ 'INKORA - Draft marketing plan for ' + $json.month }}",
           "emailFormat": "text",
@@ -48,7 +48,7 @@
         "type": "n8n-nodes-base.emailSend",
         "typeVersion": 2.1,
         "position": [760, 280],
-        "notes": "Select an SMTP credential after import and set PRINTSHOP_REPORT_FROM_EMAIL. Set PRINTSHOP_MANAGER_EMAIL in the API environment. Activate only after testing an execution."
+        "notes": "Select a verified SMTP credential and replace the sender address with the verified sender after import. Set PRINTSHOP_MANAGER_EMAIL in the API environment. Activate only after testing an execution."
       }
     ],
     "connections": {

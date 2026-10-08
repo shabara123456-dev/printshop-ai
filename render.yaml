@@ -1,0 +1,73 @@
+services:
+  - type: web
+    name: inkora-n8n
+    runtime: docker
+    plan: 1c-2g
+    dockerfilePath: ./deploy/n8n/Dockerfile
+    dockerContext: ./
+    healthCheckPath: /healthz
+    maxShutdownDelaySeconds: 90
+    disk:
+      name: n8n-data
+      mountPath: /home/node/.n8n
+      sizeGB: 5
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: GENERIC_TIMEZONE
+        value: Africa/Cairo
+      - key: TZ
+        value: Africa/Cairo
+      - key: N8N_ENCRYPTION_KEY
+        generateValue: true
+      - key: N8N_RUNNERS_ENABLED
+        value: "true"
+      - key: N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS
+        value: "true"
+      - key: N8N_PROXY_HOPS
+        value: "1"
+      - key: N8N_SECURE_COOKIE
+        value: "true"
+      - key: N8N_DIAGNOSTICS_ENABLED
+        value: "false"
+      - key: N8N_PERSONALIZATION_ENABLED
+        value: "false"
+      - key: N8N_BLOCK_ENV_ACCESS_IN_NODE
+        value: "true"
+      - key: N8N_DEFAULT_BINARY_DATA_MODE
+        value: filesystem
+      - key: INKORA_API_BASE_URL
+        value: https://printshop-ai.shabara123456.workers.dev
+
+  - type: web
+    name: inkora-hermes
+    runtime: docker
+    plan: 1c-2g
+    dockerfilePath: ./deploy/hermes/Dockerfile
+    dockerContext: ./deploy/hermes
+    dockerCommand: gateway run --quiet
+    healthCheckPath: /health
+    maxShutdownDelaySeconds: 90
+    disk:
+      name: hermes-data
+      mountPath: /var/lib/inkora-hermes
+      sizeGB: 2
+    envVars:
+      - key: HERMES_HOME
+        value: /var/lib/inkora-hermes
+      - key: HERMES_WRITE_SAFE_ROOT
+        value: /var/lib/inkora-hermes
+      - key: API_SERVER_MODEL_NAME
+        value: inkora-hermes
+      - key: API_SERVER_ENABLED
+        value: "true"
+      - key: API_SERVER_HOST
+        value: 0.0.0.0
+      - key: API_SERVER_PORT
+        value: "10000"
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: API_SERVER_KEY
+        sync: false
+      - key: HERMES_TOOL_API_KEY
+        sync: false
