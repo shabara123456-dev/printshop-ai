@@ -62,9 +62,9 @@ services:
     plan: free
     dockerfilePath: ./deploy/hermes/Dockerfile
     dockerContext: ./deploy/hermes
-    # Render must observe Hermes as the foreground process and capture startup
-    # diagnostics/exit codes; Render itself restarts failed web-service instances.
-    dockerCommand: gateway run --no-supervise
+    # The official Hermes Docker image uses s6 to supervise gateway run and
+    # keep the container alive. Do not opt out with --no-supervise here.
+    dockerCommand: gateway run
     healthCheckPath: /health
     envVars:
       - key: HERMES_HOME
