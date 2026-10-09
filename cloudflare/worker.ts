@@ -64,8 +64,9 @@ function getNodeApi(): ReturnType<typeof httpServerHandler> {
     hermes: process.env.HERMES_BASE_URL?.trim() && process.env.HERMES_API_KEY?.trim()
       ? new HermesRemoteHttpClient()
       : undefined,
-    hermesProbeUrl: process.env.HERMES_HEALTH_URL?.trim() || integrationProbeUrl(process.env.HERMES_BASE_URL, 'healthz'),
-    n8nProbeUrl: integrationProbeUrl(process.env.N8N_WEBHOOK_BASE_URL),
+    hermesProbeUrl: integrationProbeUrl(process.env.HERMES_BASE_URL, 'v1/models'),
+    hermesProbeHeaders: process.env.HERMES_API_KEY?.trim() ? { authorization: `Bearer ${process.env.HERMES_API_KEY.trim()}` } : undefined,
+    n8nProbeUrl: process.env.N8N_HEALTH_URL?.trim() || integrationProbeUrl(process.env.N8N_WEBHOOK_BASE_URL, 'healthz'),
     marketingImage: process.env.MARKETING_IMAGE_PROVIDER?.trim().toLowerCase() === 'off'
       ? undefined
       : new AiHordeMarketingImageClient(),

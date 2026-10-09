@@ -96,7 +96,7 @@ export type CommerceVertical = { vertical_key: string; label_en: string; label_a
 export type HermesChatMessage = { role: 'user' | 'assistant'; content: string };
 export type HermesChatClient = { complete(messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>): Promise<{ content: string; model: string; usage?: { prompt_tokens?: number; completion_tokens?: number } }> };
 export type MarketingImageClient = { generate(prompt: string): Promise<{ data: Buffer; mimeType: string; model: string; estimatedCostUsd: number | null }> };
-type Dependencies = { gateway: AuthGateway; pricing: PricingRepository; allowedOrigins?: string[]; allowSameOrigin?: boolean; hermes?: HermesChatClient; hermesProbeUrl?: string; n8nProbeUrl?: string; n8nManagement?: { overview(): Promise<N8nOperationsOverview> }; marketingImage?: MarketingImageClient; hermesToolKey?: string; hermesWriteToolsEnabled?: boolean; hermesManagerUserId?: string; n8nWebhookBaseUrl?: string; n8nWebhookSecret?: string; managerEmail?: string };
+type Dependencies = { gateway: AuthGateway; pricing: PricingRepository; allowedOrigins?: string[]; allowSameOrigin?: boolean; hermes?: HermesChatClient; hermesProbeUrl?: string; hermesProbeHeaders?: Record<string, string>; n8nProbeUrl?: string; n8nManagement?: { overview(): Promise<N8nOperationsOverview> }; marketingImage?: MarketingImageClient; hermesToolKey?: string; hermesWriteToolsEnabled?: boolean; hermesManagerUserId?: string; n8nWebhookBaseUrl?: string; n8nWebhookSecret?: string; managerEmail?: string };
 type Actor = { id: string; role: Role };
 
 class UserAiRateLimiter {
@@ -333,12 +333,13 @@ function suppliedIntegrationKey(request: IncomingMessage, expected: string | und
   return actualBytes.length === expectedBytes.length && timingSafeEqual(actualBytes, expectedBytes);
 }
 
-async function probeIntegration(url: string): Promise<'reachable' | 'unavailable'> {
+async function probeIntegration(url: string, headers?: Record<string, string>): Promise<'reachable' | 'unavailable'> {
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(2_500), headers: { accept: 'application/json' } });
+    const response = await fetch(url, { signal: AbortSignal.timeout(2_500), headers: { accept: 'application/json', ...headers } });
     if (!response.ok) return 'unavailable';
-    const result = await response.json() as { status?: unknown };
-    return result.status === 'ok' ? 'reachable' : 'unavailable';
+    const result = await response.json() as { status?: unknown; object?: unknown; data?: unknown };
+    const healthy = result.status === 'ok' || (result.object === 'list' && Array.isArray(result.data));
+    return healthy ? 'reachable' : 'unavailable';
   } catch { return 'unavailable'; }
 }
 
@@ -404,7 +405,7 @@ export function createApiServer(deps: Dependencies): Server {
     if (method === 'GET' && path === '/health') { send(response, 200, { status: 'ok' }); return; }
     if (method === 'GET' && path === '/ready') {
       const [hermes, n8n] = await Promise.all([
-        deps.hermes ? (deps.hermesProbeUrl ? probeIntegration(deps.hermesProbeUrl) : Promise.resolve('configured' as const)) : Promise.resolve('not_configured' as const),
+        deps.hermes ? (deps.hermesProbeUrl ? probeIntegration(deps.hermesProbeUrl, deps.hermesProbeHeaders) : Promise.resolve('configured' as const)) : Promise.resolve('not_configured' as const),
         deps.n8nWebhookBaseUrl && deps.n8nWebhookSecret ? (deps.n8nProbeUrl ? probeIntegration(deps.n8nProbeUrl) : Promise.resolve('configured' as const)) : Promise.resolve('not_configured' as const)
       ]);
       const checks = { database: 'not_checked', hermes, n8n };
