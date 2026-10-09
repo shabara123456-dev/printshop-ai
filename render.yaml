@@ -62,9 +62,6 @@ services:
     plan: free
     dockerfilePath: ./deploy/hermes/Dockerfile
     dockerContext: ./deploy/hermes
-    # Keep the official s6 supervision enabled; -v sends startup diagnostics
-    # to Render logs while we troubleshoot the failed Hermes boot.
-    dockerCommand: gateway run -v
     healthCheckPath: /health
     envVars:
       - key: HERMES_HOME
