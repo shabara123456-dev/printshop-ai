@@ -1,35 +1,47 @@
-# PrintShop AI MVP — completion status
+# INKORA — verified status
 
-Brand/storefront update 2026-10-03: the web brand is now **INKORA**, with a public customer-facing catalog and original product-specific SVG concept art. See [INKORA build notes](inkora-build-notes.md). The artwork is not real photography. Migrations through `20261003001600` are applied and verified in the linked Supabase project.
+Last checked: 2026-10-09 after the latest Cloudflare Worker deployment.
 
-This audit separates code that is ready in the repository from the account setup required to run external services.
+## Verified live
 
-## Implemented in this repository
-
-| Area | Ready locally |
+| Check | Result |
 |---|---|
-| Customer interface | React/Vite catalog, deterministic backend quote flow, quote accept/decline, order tracking timeline, English/Arabic, RTL, design brief, private reference-file upload, private final artwork review and customer approval |
-| Manager interface | Live operations dashboard, analytics screen, product/variant setup, approved shop price-rule management, customer directory, quote inbox, orders, inventory, production controls, design review, Hermes chat, marketing draft generation and approval |
-| Backend | Authenticated Node API, business-role checks, deterministic pricing, quote/order state machines, inventory ledger RPCs, production workflow, signed-in storage metadata checks, Hermes-only language tasks, marketing audit/usage logging |
-| Supabase | Schema, RLS, seeded market references, approved EGP 2,100 base rule limited to 1,000 stickers at 10×8 cm, plus the EGP 50 shop-design fee on that exact rule. |
-| Hermes | The backend HTTP client and restricted MCP tools are implemented. Routine stock/sales/production/order lookups use verified backend data without an LLM call. The local Hermes HTTP gateway is currently stopped, so manager AI chat needs it started to work. |
-| n8n assets | Importable workflow JSON for low-stock/order-ready/approved-marketing event emails and the scheduled daily report; API events are protected by a shared secret. |
+| Public website | `https://printshop-ai.shabara123456.workers.dev/` returned HTTP 200. |
+| Worker health | `/health` returned `ok`. |
+| Supabase | `/ready` reported `database: ok`; linked migrations through `20261009000500` applied. |
+| Hermes | Latest `/ready` probe reported `reachable`; a real authenticated chat/tool call still needs a manager-side check. |
+| n8n | Latest `/ready` probe reported `reachable`; online workflow execution and email are not yet verified. |
+| Public catalog | API returned 19 products. Demo-only data must not be sold as actual shop inventory. |
+| Automated checks | `npm test`: 61 passed, 0 failed. `npm run typecheck`: passed. `npm run build:web`: passed. |
+| Deployment | Cloudflare Worker version `f4b77cdd-1468-4019-8078-f6ce322850f9` deployed successfully. |
 
-## External configuration status
+The latest `/ready` response is `ready` with database, Hermes, and n8n reachable. This confirms endpoints respond; it does not prove n8n workflows are active or email/social actions succeeded.
 
-- Migrations through `20261003001600` were applied and verified on 2026-10-03. Migration `0009` repairs demo price/order seeding; `0010` adds explicitly illustrative material-use mappings so demo quote acceptance can reserve stock and create production jobs; `0015` adds the approved EGP 50 shop-design fee to the sticker example; `0016` applies it to all 163 active price rules for products supporting shop design. New manager-created price rules default to the same fee.
-- **Current n8n state (rechecked 2026-10-08):** four imported workflows are present, but all are inactive; the instance has zero saved credentials and zero executions. Earlier notes claiming successful email tests do not describe the current Docker instance. Configure credentials, activate workflows, and verify fresh executions before calling automation operational. An encrypted workflow/credential backup is stored locally under the gitignored `n8n/backups/` directory.
-- The repository contains a custom React/Vite app. It is not connected to Lovable.
-- The Gemini compatibility proxy syntax error was fixed and its health endpoint returns HTTP 200 from n8n's Docker network. n8n Assistant is still blocked because the sandbox tenant quota is two and both sandbox slots are occupied; the existing sessions were preserved.
-- Payment, social-media publishing, production hosting, and domain setup are not enabled. Manager product/pricing controls are implemented locally; audited price-rule writes require migration `20261003000700` before production use. The approved marketing post is persisted in the approval queue and is not auto-published.
+## Implemented in code and deployed; not yet proven end to end
 
-## MVP demo path
+- Per-product optional customer artwork upload setting; backend checks the order’s actual product permission. Paid shop-design checkout was removed; unrelated order payment state remains intact.
+- Product manager upload/replace/remove controls and local preview before uploading/saving. Storefront assets are stored in Supabase Storage.
+- Optional AI product-image candidates using the configured free AI Horde image service. The default shop allowance is three; reservations are atomic, failures release the allowance, managers can change the limit with an audit reason, and selecting a candidate is a separate explicit action.
+- Product-image allowance and candidate metadata are protected by service-role backend access/RLS.
+- Storefront configuration with distinct themes, custom palettes, typography/layout choices, hero/logo assets and placement, featured products/categories, drafts, preview, publish and restore.
+- Compact searchable/paginated manager catalog with status, stock availability, material description, current starting price, image and secondary actions.
+- A single prominent valid next production action in order rows while retaining backend state validation and the progress summary.
+- Persisted manager marketing-plan configuration and deterministic monthly schedule passed to the existing plan-generation endpoint. Generated posts are drafts requiring approval; no post is marked published by this feature.
+- Incremental Supabase migrations were applied without dropping existing order, product, customer, pricing, inventory or payment data.
 
-1. Sign in as customer; quote exactly 1,000 waterproof vinyl stickers at 10×8 cm and verify the backend total of EGP 2,100.
-2. Accept the quote; it creates an order. Submit a design brief and optional reference files.
-3. As manager, review the quote/order, move the design request through review/design, attach final artwork and submit it for customer review.
-4. As customer, approve or request a revision. Manager advances production through prepress, printing, finishing, quality check, ready, and delivered.
-5. Manager creates an independent campaign brief, optionally selects a catalog product, and generates a caption. Optional campaign artwork uses Gemini when its server key is configured. The manager approves or rejects the asset; approval records an `approved` marketing post for a future configured publisher.
-6. Configure the current n8n instance's SMTP and Header Auth credentials, activate the daily, weekly, monthly, and event workflows, then verify fresh executions and delivered emails before relying on automation.
+## Not enabled or not production-ready
 
-See [mvp-final-setup.md](mvp-final-setup.md) for one grouped setup pass, and [n8n-workflows.md](n8n-workflows.md) for import/configuration steps.
+- n8n is reachable in the latest live readiness check. Workflow activation, SMTP email delivery, and scheduled publishing are not verified live.
+- Online payment processing and payment webhooks are not configured. Paid extra image generations are not offered; no payment is simulated.
+- Facebook/Instagram/social publishing and platform analytics are not configured. Approval creates an internal marketing post record only.
+- Product image uploads and AI generation were not exercised against a real manager session in this verification. AI Horde uses a shared volunteer queue and output quality/availability are not guaranteed.
+- Existing products without real approved prices/availability must remain unavailable; demo records are illustrative, not real business performance.
+- Current seeded product visuals are illustrations until the manager uploads authentic shop photography or selects reviewed generated candidates.
+
+## Next verification steps
+
+1. Resolve n8n reachability and verify one active monthly plan run and a real manager email. Keep the workflow inactive until its credentialed manual run succeeds.
+2. Sign in as manager; save a marketing plan, run n8n once, approve a draft, and verify the scheduled post row. Social publishing remains disabled unless a real official platform integration is configured.
+3. Upload an image to a test product and confirm the public storefront displays it. Generate a candidate only if the manager accepts the community queue; review before selecting.
+4. Test signup email, customer upload permissions for two products, and a disposable order through reservation, production, and cancellation/release.
+5. Do not use seeded customer contacts for real messages, invent prices, or mark unpaid orders paid.

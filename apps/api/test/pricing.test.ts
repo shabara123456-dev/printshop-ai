@@ -502,6 +502,7 @@ test('product listing is public but an authenticated customer cannot read anothe
     async updateDesignRequestStatus(_id: string, status: string) { designStatus = status; },
     async createDesignRequest(input: { designFee: number }) { createdDesignFee = input.designFee; return 'design-1'; },
     async orderBelongsToCustomer() { return true; },
+    async customerDesignUploadAllowed() { return true; },
     async createMaterial() { return 'material-1'; },
     async createMaterialRequirement() { return 'requirement-1'; }
   };
@@ -577,19 +578,25 @@ test('product listing is public but an authenticated customer cannot read anothe
   assert.equal(customerApproval.status, 200);
   assert.equal(designStatus, 'approved');
   quoteOwner = 'customer-1';
-  const shopDesign = await fetch(`${base}/api/design-requests`, {
+  const customerArtwork = await fetch(`${base}/api/design-requests`, {
+    method: 'POST', headers: { authorization: 'Bearer valid-token', 'content-type': 'application/json' },
+    body: JSON.stringify({ order_id: '30000000-0000-4000-8000-000000000014', brief: 'Customer supplied print-ready artwork', reference_files: ['user-1/artwork.pdf'] })
+  });
+  assert.equal(customerArtwork.status, 201);
+  assert.equal(createdDesignFee, 0);
+  const removedPaidDesign = await fetch(`${base}/api/design-requests`, {
     method: 'POST', headers: { authorization: 'Bearer valid-token', 'content-type': 'application/json' },
     body: JSON.stringify({ order_id: '30000000-0000-4000-8000-000000000014', brief: 'Create a cafe sticker design', reference_files: [], shop_design: true })
   });
-  assert.equal(shopDesign.status, 201);
-  assert.equal(createdDesignFee, 50);
+  assert.equal(removedPaidDesign.status, 410);
+  assert.equal((await removedPaidDesign.json() as { error: { code: string } }).error.code, 'CUSTOM_DESIGN_REMOVED');
   includeApprovedDesignFee = false;
   const unpricedShopDesign = await fetch(`${base}/api/design-requests`, {
     method: 'POST', headers: { authorization: 'Bearer valid-token', 'content-type': 'application/json' },
     body: JSON.stringify({ order_id: '30000000-0000-4000-8000-000000000014', brief: 'Create a cafe sticker design', reference_files: [], shop_design: true })
   });
-  assert.equal(unpricedShopDesign.status, 422);
-  assert.equal((await unpricedShopDesign.json() as { error: { code: string } }).error.code, 'DESIGN_FEE_NOT_INCLUDED');
+  assert.equal(unpricedShopDesign.status, 410);
+  assert.equal((await unpricedShopDesign.json() as { error: { code: string } }).error.code, 'CUSTOM_DESIGN_REMOVED');
 });
 
 test('manager can cancel an order through the guarded order state transition', async (context) => {
@@ -826,7 +833,9 @@ test('Hermes storefront action creates a review draft but does not publish it', 
     { role: 'user', content: `I CONFIRM THIS CHANGE ${firstBody.action_id}` }
   ] }) });
   assert.equal(confirmed.status, 200);
-  assert.deepEqual(savedDraft, config);
+  assert.equal((savedDraft as Record<string, unknown>).accent_color, config.accent_color);
+  assert.equal((savedDraft as Record<string, unknown>).theme, 'midnight');
+  assert.equal((savedDraft as Record<string, unknown>).layout, 'wide');
   assert.equal(published, false, 'Hermes must not publish the storefront configuration');
   assert.equal(proposals.get(firstBody.action_id)?.status, 'completed');
 });
@@ -934,8 +943,10 @@ test('monthly marketing integration returns only Hermes-generated drafts and fai
   const draft = JSON.stringify(Array.from({ length: 4 }, (_, index) => ({ slot: index + 1, platform: 'instagram', caption: `Truthful print-shop post ${index + 1} — Contact us today. #Printing #Business #Design` })));
   let recorded: Array<{ success: boolean; feature: string }> = [];
   let hermesCalls = 0;
+  const persisted: Array<Record<string, unknown>> = [];
   const gateway = {
     async listProducts() { return [{ name: 'Business cards', category: 'stationery', description: 'Printed cards' }]; },
+    async createMarketingAsset(input: Record<string, unknown>) { persisted.push(input); return `asset-${persisted.length}`; },
     async recordAiRun(run: { success: boolean; feature: string }) { recorded.push(run); }
   } as unknown as AuthGateway;
   const server = createApiServer({
@@ -950,12 +961,15 @@ test('monthly marketing integration returns only Hermes-generated drafts and fai
   const url = `http://127.0.0.1:${address.port}/api/integrations/monthly-marketing-plan`;
   const response = await fetch(url, { headers: { 'x-printshop-integration-key': 'long-test-secret' } });
   assert.equal(response.status, 200);
-  const result = await response.json() as { posts: Array<{ caption: string; approval_required: boolean }>; image_generation_available: boolean; model: string };
+  const result = await response.json() as { posts: Array<{ caption: string; approval_required: boolean; asset_id: string }>; image_generation_available: boolean; model: string };
   assert.equal(result.posts.length, 4);
   assert.equal(result.posts[0].caption, 'Truthful print-shop post 1 — Contact us today. #Printing #Business #Design');
   assert.ok(result.posts.every((post) => post.approval_required));
   assert.equal(result.image_generation_available, false);
   assert.equal(result.model, 'gemini-test');
+  assert.equal(persisted.length, 4);
+  assert.ok(persisted.every((asset) => typeof asset.scheduledAt === 'string' && asset.createdBy === null));
+  assert.deepEqual(result.posts.map((post) => post.asset_id), ['asset-1','asset-2','asset-3','asset-4']);
   assert.equal(hermesCalls, 1);
   assert.deepEqual(recorded.map(({ success, feature }) => ({ success, feature })), [{ success: true, feature: 'monthly_marketing_plan' }]);
 
@@ -1006,4 +1020,93 @@ test('monthly marketing plan stores free generated artwork as approval-required 
   assert.equal(created.length, 4);
   assert.ok(created.every((asset) => asset.createdBy === null && asset.orderId === null));
   assert.equal(aiRuns.filter((run) => run.feature === 'marketing_image' && run.success === true && run.estimatedCostUsd === 0).length, 4);
+});
+
+test('monthly marketing plan settings are manager-only, validated, and persisted for n8n', async (context) => {
+  const productId = '50000000-0000-4000-8000-000000000009';
+  const saved: Array<{ actorId: string; settings: Record<string, unknown> }> = [];
+  const gateway = {
+    async authenticate(token: string) { return { id: token === 'manager-token' ? 'manager-1' : 'customer-1' }; },
+    async getRole(id: string) { return id === 'manager-1' ? 'manager' : 'customer'; },
+    async getMarketingPlanSettings() { return null; },
+    async saveMarketingPlanSettings(actorId: string, settings: Record<string, unknown>) { saved.push({ actorId, settings }); },
+    async listProducts() { return [{ id: productId, active: true }]; }
+  } as unknown as AuthGateway;
+  const server = createApiServer({ gateway, pricing: repository() });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  context.after(() => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Test server did not bind a TCP port.');
+  const url = `http://127.0.0.1:${address.port}/api/manager/marketing/plan-settings`;
+  const settings = { goals: 'Get more local print orders', target_audience: 'Mansoura cafes', product_ids: [productId], platforms: ['instagram'], campaign_themes: ['product_showcase'], posts_per_month: 6, important_dates: [], brand_voice: 'Helpful and direct', visual_preferences: 'Photorealistic print products' };
+  const denied = await fetch(url, { method: 'PUT', headers: { authorization: 'Bearer customer-token', 'content-type': 'application/json' }, body: JSON.stringify({ settings }) });
+  assert.equal(denied.status, 403);
+  const accepted = await fetch(url, { method: 'PUT', headers: { authorization: 'Bearer manager-token', 'content-type': 'application/json' }, body: JSON.stringify({ settings }) });
+  assert.equal(accepted.status, 200);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].actorId, 'manager-1');
+  assert.equal(saved[0].settings.posts_per_month, 6);
+  const invalid = await fetch(url, { method: 'PUT', headers: { authorization: 'Bearer manager-token', 'content-type': 'application/json' }, body: JSON.stringify({ settings: { ...settings, product_ids: ['50000000-0000-4000-8000-000000000010'] } }) });
+  assert.equal(invalid.status, 422);
+  assert.equal(saved.length, 1);
+});
+
+test('product image generation is manager-only, records a quota reservation, and requires explicit primary selection', async (context) => {
+  const productId = '50000000-0000-4000-8000-000000000009';
+  const calls: string[] = [];
+  let remaining = 3;
+  const gateway = {
+    async authenticate(token: string) { return { id: token === 'manager-token' ? 'manager-1' : 'customer-1' }; },
+    async getRole(id: string) { return id === 'manager-1' ? 'manager' : 'customer'; },
+    async getProduct(id: string) { return id === productId ? { id, name: 'Printed mug', category: 'mugs', description: 'Ceramic mug' } : null; },
+    async getProductImageAllowance() { return { included: 3, used: 3 - remaining, remaining }; },
+    async reserveProductImageGeneration(input: { id: string; productId: string; requestedBy: string }) { calls.push(`reserve:${input.productId}:${input.requestedBy}`); remaining -= 1; },
+    async uploadProductImage(input: { productId: string }) { calls.push(`upload:${input.productId}`); return `products/${productId}/generated.webp`; },
+    async finishProductImageGeneration(input: { status: string; imagePath?: string | null }) { calls.push(`finish:${input.status}:${input.imagePath ?? ''}`); },
+    async recordAiRun() {}
+  } as unknown as AuthGateway;
+  const server = createApiServer({ gateway, pricing: repository(), marketingImage: { async generate() { return { data: Buffer.alloc(256, 1), mimeType: 'image/webp', model: 'test-image-model', estimatedCostUsd: 0 }; } } });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  context.after(() => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Test server did not bind a TCP port.');
+  const url = `http://127.0.0.1:${address.port}/api/manager/products/${productId}/images/generate`;
+  const denied = await fetch(url, { method: 'POST', headers: { authorization: 'Bearer customer-token', 'content-type': 'application/json' }, body: '{}' });
+  assert.equal(denied.status, 403);
+  const response = await fetch(url, { method: 'POST', headers: { authorization: 'Bearer manager-token', 'content-type': 'application/json' }, body: '{}' });
+  assert.equal(response.status, 201);
+  const result = await response.json() as { image_path: string; allowance: { remaining: number } };
+  assert.equal(result.image_path, `products/${productId}/generated.webp`);
+  assert.equal(result.allowance.remaining, 2);
+  assert.deepEqual(calls, [`reserve:${productId}:manager-1`, `upload:${productId}`, `finish:completed:products/${productId}/generated.webp`]);
+});
+
+test('product image allowance changes are audited manager actions and cannot revoke already-used generations', async (context) => {
+  let included = 3;
+  const audit: Array<Record<string, unknown>> = [];
+  const gateway = {
+    async authenticate(token: string) { return { id: token === 'manager-token' ? 'manager-1' : 'customer-1' }; },
+    async getRole(id: string) { return id === 'manager-1' ? 'manager' : 'customer'; },
+    async getProductImageAllowance() { return { included, used: 2, remaining: included - 2 }; },
+    async setProductImageAllowance(_actor: string, value: number) { included = value; },
+    async recordAuditLog(input: Record<string, unknown>) { audit.push(input); }
+  } as unknown as AuthGateway;
+  const server = createApiServer({ gateway, pricing: repository() });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  context.after(() => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Test server did not bind a TCP port.');
+  const url = `http://127.0.0.1:${address.port}/api/manager/product-images/allowance`;
+  const payload = (value: number) => JSON.stringify({ included: value, reason: 'Approved test allowance' });
+  const denied = await fetch(url, { method: 'PUT', headers: { authorization: 'Bearer customer-token', 'content-type': 'application/json' }, body: payload(4) });
+  assert.equal(denied.status, 403);
+  const belowUsage = await fetch(url, { method: 'PUT', headers: { authorization: 'Bearer manager-token', 'content-type': 'application/json' }, body: payload(1) });
+  assert.equal(belowUsage.status, 409);
+  const accepted = await fetch(url, { method: 'PUT', headers: { authorization: 'Bearer manager-token', 'content-type': 'application/json' }, body: payload(5) });
+  assert.equal(accepted.status, 200);
+  assert.equal(included, 5);
+  assert.equal(audit.length, 1);
 });

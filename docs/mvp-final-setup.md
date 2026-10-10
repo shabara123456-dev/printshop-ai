@@ -1,39 +1,51 @@
-# PrintShop AI — one grouped MVP setup pass
+# INKORA — current deployment checks
 
-Code changes can be prepared locally first. When ready to connect the demo services, complete these setup items together.
+Last checked 2026-10-09 after Cloudflare deployment `f4b77cdd-1468-4019-8078-f6ce322850f9`.
 
-## Supabase
+## Live checks
 
-From the project root:
+- Website: HTTP 200 at https://printshop-ai.shabara123456.workers.dev/
+- Worker health: `/health` returned `ok`.
+- Supabase: `/ready` reports database `ok`.
+- Hermes: `/ready` reports `reachable` in the latest probe.
+- n8n: the latest `/ready` probe returned `reachable`; no live workflow execution/email has yet been verified in this check.
+- Catalog API: 19 products returned.
+- Database: linked Supabase migrations through `20261009000500` applied successfully.
+- Automated checks: `npm test` (61 passed), `npm run typecheck`, and `npm run build:web` passed.
 
-```powershell
-npx supabase@latest db push --dry-run --linked
-npx supabase@latest db push --linked
-```
+The site and API are online and the latest `/ready` response is `ready`. Reachability does not confirm workflow activation, email delivery, or a complete automation run. See [mvp-gap-audit.md](mvp-gap-audit.md).
 
-The linked project was verified on 2026-10-03 with all local migrations through `20261003001000` applied. For later schema edits, inspect the dry-run output and review each migration before applying it. The migration history includes the private `design-files` bucket/policies, atomic marketing approval, catalog seed repair, demo records, and illustrative material requirements.
+## Newly available manager features
 
-Create/sign in to the owner account in the app first, then use Supabase SQL Editor to run `supabase/setup_manager.sql` after replacing the email placeholder with the account email. This sets only that existing account's role. Do not use fictional demo contacts as real customer accounts.
+- Per-product customer design-upload permission, optional descriptive material, manual image upload/replace/remove, and image preview.
+- Three shop-wide included product-image generations by default. Managers can review candidates, choose the primary image, and adjust the included limit with an audited reason. This uses the free AI Horde queue; it is not a guarantee of output quality or uptime.
+- Paid extra image generations are explicitly unavailable until a real payment provider is configured; the app does not simulate a payment.
+- Marketing monthly plan settings persist in Supabase and feed the existing monthly-plan API when the n8n workflow is run. Posts remain approval-required drafts.
+- Storefront edits support versioned drafts, preview, publish, themes, colors, logo/hero assets, featured products and categories.
 
-## n8n and notifications
+## Remaining live checks and integrations
 
-1. The current local n8n instance contains four imported workflows (daily, weekly, monthly, and event notifications); all are inactive. Do not import duplicates.
-2. Current instance audit shows zero saved SMTP/Header Auth credentials and zero executions. Configure credentials in n8n, test email and webhook delivery, then activate the workflows. Earlier setup notes referred to another instance/state and are superseded by this check.
-3. Keep Docker Desktop and n8n running for schedules and event delivery. After changing workflow settings, publish the updated workflow and verify a fresh execution and delivered email.
+1. Sign in as a manager and upload a product photo, then verify it on the catalog and public storefront.
+2. Use a non-customer image to try optional AI product-image generation; review a candidate and explicitly select it. The shared allowance defaults to three.
+3. Open Marketing, save the monthly plan settings, and run the existing monthly n8n workflow only after n8n is reachable. Confirm that approval-required drafts appear in the Marketing calendar.
+4. Test Hermes with a manager question against actual inventory.
+5. Verify signup email, confirmation redirect, and a disposable customer order through supported cancellation/release flows.
 
-## Start and check the app
+Online payment processing, paid AI image add-ons, and social publishing are not enabled. Do not mark unpaid orders paid or claim posts were published without provider confirmation.
+
+## Local development
+
+From the repository root:
 
 ```powershell
 npm install
 npm start
 ```
 
-In a second PowerShell window:
+In another PowerShell window:
 
 ```powershell
 npm run dev:web
 ```
 
-Open `http://localhost:5173`. For deployment, set the same server-only variables on the API host and `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_API_BASE_URL` in the web build environment. Never put the Supabase secret, Hermes key, or n8n shared secret in frontend variables. Marketing artwork uses the optional free AI Horde volunteer queue (`MARKETING_IMAGE_PROVIDER=ai_horde`); no image API key is required, though `AI_HORDE_API_KEY` can raise queue priority. Requests can wait or fail when volunteer workers are busy. Campaign prompts go to third-party workers, so exclude private customer data. Apply migration `20261003001300_independent_marketing_campaigns.sql`; generated artwork is private in Supabase Storage and drafts require manager approval.
-
-Payments, social publishing, public hosting, and Lovable source linking require separate account choices and are not automatically created by this repository.
+Open `http://localhost:5173`. Keep server secrets in the root backend `.env`; browser variables must contain only the Supabase publishable key and public API URL.

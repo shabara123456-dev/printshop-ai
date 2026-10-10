@@ -1,65 +1,104 @@
-[
-  {
-    "name": "INKORA - Monthly Marketing Plan",
-    "nodes": [
-      {
-        "parameters": {
-          "rule": {
-            "interval": [
-              { "field": "months", "triggerAtDayOfMonth": 1, "triggerAtHour": 9 }
-            ]
-          }
-        },
-        "id": "15f4b314-3578-41e4-9e99-dc4ef43531a9",
-        "name": "First day of each month",
-        "type": "n8n-nodes-base.scheduleTrigger",
-        "typeVersion": 1.2,
-        "position": [240, 280]
+{
+  "name": "INKORA - Monthly Marketing Plan",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "months",
+              "triggerAtDayOfMonth": 1,
+              "triggerAtHour": 9
+            }
+          ]
+        }
       },
-      {
-        "parameters": {
-          "url": "http://host.docker.internal:3000/api/integrations/monthly-marketing-plan",
-          "sendHeaders": true,
-          "headerParameters": {
-            "parameters": [
-              { "name": "x-printshop-integration-key", "value": "REPLACE_WITH_N8N_WEBHOOK_SECRET" }
-            ]
-          },
-          "options": { "timeout": 300000 }
-        },
-        "id": "722beaf8-64ad-44b3-a2a5-cd6ee46af0cc",
-        "name": "Generate monthly plan with Hermes",
-        "type": "n8n-nodes-base.httpRequest",
-        "typeVersion": 4.2,
-        "position": [500, 280],
-        "notes": "Dates are created deterministically by the API. Hermes supplies truthful draft captions from active catalog facts. Each post requires manager approval. No social account is published to by this workflow. Campaign photos are generated through the free AI Horde community queue and saved to private marketing storage. Queue delays or failures leave the text draft intact. Set the same shared integration secret in the API and n8n."
-      },
-      {
-        "parameters": {
-          "fromEmail": "inkora@example.com",
-          "toEmail": "={{ $json.to_email }}",
-          "subject": "={{ 'INKORA - Draft marketing plan for ' + $json.month }}",
-          "emailFormat": "text",
-          "text": "={{ 'MONTHLY CONTENT PLAN - ' + $json.month + '\\nAll posts are drafts and require manager approval.\\n\\n' + JSON.stringify($json.posts, null, 2) + '\\n\\nGenerated images require manager approval and are not published automatically. Image status and temporary preview links are included with each draft.' }}",
-          "options": {}
-        },
-        "id": "c5d6b981-dbd4-4519-834b-01ecb3b0429e",
-        "name": "Email plan for manager approval",
-        "type": "n8n-nodes-base.emailSend",
-        "typeVersion": 2.1,
-        "position": [760, 280],
-        "notes": "Select a verified SMTP credential and replace the sender address with the verified sender after import. Set PRINTSHOP_MANAGER_EMAIL in the API environment. Activate only after testing an execution."
-      }
-    ],
-    "connections": {
-      "First day of each month": { "main": [[{ "node": "Generate monthly plan with Hermes", "type": "main", "index": 0 }]] },
-      "Generate monthly plan with Hermes": { "main": [[{ "node": "Email plan for manager approval", "type": "main", "index": 0 }]] }
+      "id": "15f4b314-3578-41e4-9e99-dc4ef43531a9",
+      "name": "First day of each month",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        280
+      ]
     },
-    "active": false,
-    "settings": { "executionOrder": "v1", "timezone": "Africa/Cairo" },
-    "versionId": "bd6d5636-1c3a-47e0-98da-bd4ea9fa0bd2",
-    "meta": { "templateCredsSetupCompleted": false },
-    "tags": [],
-    "id": "c9234618-e0aa-428e-b733-971736136a16"
-  }
-]
+    {
+      "parameters": {
+        "url": "https://printshop-ai.shabara123456.workers.dev/api/integrations/monthly-marketing-plan",
+        "sendHeaders": false,
+        "options": {
+          "timeout": 300000
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "722beaf8-64ad-44b3-a2a5-cd6ee46af0cc",
+      "name": "Generate monthly plan with Hermes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        500,
+        280
+      ],
+      "notes": "Select the saved INKORA Event Webhook Header Auth credential before activating. No shared secret is stored in this workflow file."
+    },
+    {
+      "parameters": {
+        "options": {
+          "appendAttribution": false
+        },
+        "resource": "message",
+        "subject": "={{ 'INKORA - Draft marketing plan for ' + $json.month }}",
+        "message": "={{ 'MONTHLY CONTENT PLAN - ' + $json.month + '\\nAll posts are drafts and require manager approval.\\n\\n' + JSON.stringify($json.posts, null, 2) + '\\n\\nGenerated images require manager approval and are not published automatically. Image status and temporary preview links are included with each draft.' }}",
+        "authentication": "oAuth2",
+        "emailType": "text",
+        "sendTo": "={{ $json.to_email }}",
+        "operation": "send"
+      },
+      "id": "c5d6b981-dbd4-4519-834b-01ecb3b0429e",
+      "name": "Email plan for manager approval",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        760,
+        280
+      ],
+      "notes": "Select the saved Gmail OAuth credential before activating. Uses the Gmail API over HTTPS; SMTP is blocked on Render Free."
+    }
+  ],
+  "connections": {
+    "First day of each month": {
+      "main": [
+        [
+          {
+            "node": "Generate monthly plan with Hermes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate monthly plan with Hermes": {
+      "main": [
+        [
+          {
+            "node": "Email plan for manager approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Africa/Cairo"
+  },
+  "versionId": "bd6d5636-1c3a-47e0-98da-bd4ea9fa0bd2",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [],
+  "id": "c9234618-e0aa-428e-b733-971736136a16"
+}

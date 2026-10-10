@@ -12,6 +12,22 @@ import { createPrintshopMcpServer } from '../apps/hermes/src/tools.ts';
 let handleNodeApi: ReturnType<typeof httpServerHandler> | undefined;
 let gatewayInstance: SupabaseGateway | undefined;
 
+/** Cloudflare's module Worker bindings are the authoritative runtime config. */
+interface WorkerEnvironment {
+  N8N_API_BASE_URL?: string;
+  N8N_API_KEY?: string;
+  N8N_HEALTH_URL?: string;
+  N8N_WEBHOOK_BASE_URL?: string;
+  N8N_WEBHOOK_SECRET?: string;
+  HERMES_TOOL_API_KEY?: string;
+  [key: string]: unknown;
+}
+
+function bindingOrProcess(env: WorkerEnvironment, name: string): string | undefined {
+  const value = env[name] ?? process.env[name];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
 function integrationProbeUrl(base: string | undefined, healthPath = 'healthz'): string | undefined {
   if (!base?.trim()) return undefined;
   try { return new URL(`${base.replace(/\/+$/, '')}/${healthPath.replace(/^\/+/, '')}`).toString(); }
@@ -25,8 +41,8 @@ function sameSecret(actual: string | null, expected: string | undefined): boolea
   return actualBytes.byteLength === expectedBytes.byteLength && timingSafeEqual(actualBytes, expectedBytes);
 }
 
-async function handleHermesMcp(request: Request): Promise<Response> {
-  const key = process.env.HERMES_TOOL_API_KEY?.trim();
+async function handleHermesMcp(request: Request, env: WorkerEnvironment): Promise<Response> {
+  const key = bindingOrProcess(env, 'HERMES_TOOL_API_KEY');
   if (!key) return new Response(JSON.stringify({ error: 'MCP service is not configured.' }), { status: 503, headers: { 'content-type': 'application/json' } });
   const auth = request.headers.get('authorization');
   const bearer = auth && /^Bearer\s+/i.test(auth) ? auth.replace(/^Bearer\s+/i, '') : null;
@@ -41,13 +57,13 @@ async function handleHermesMcp(request: Request): Promise<Response> {
   const server = createPrintshopMcpServer({
     apiBase: new URL(request.url).origin,
     managerToolKey: key,
-    internalFetch: (apiRequest) => getNodeApi().fetch(apiRequest)
+    internalFetch: (apiRequest) => getNodeApi(env).fetch(apiRequest)
   });
   await server.connect(transport);
   return transport.handleRequest(request);
 }
 
-function getNodeApi(): ReturnType<typeof httpServerHandler> {
+function getNodeApi(env: WorkerEnvironment): ReturnType<typeof httpServerHandler> {
   if (handleNodeApi) return handleNodeApi;
 
   // Defer binding-dependent initialization until a request arrives. Wrangler
@@ -66,7 +82,7 @@ function getNodeApi(): ReturnType<typeof httpServerHandler> {
       : undefined,
     hermesProbeUrl: integrationProbeUrl(process.env.HERMES_BASE_URL, 'v1/models'),
     hermesProbeHeaders: process.env.HERMES_API_KEY?.trim() ? { authorization: `Bearer ${process.env.HERMES_API_KEY.trim()}` } : undefined,
-    n8nProbeUrl: process.env.N8N_HEALTH_URL?.trim() || integrationProbeUrl(process.env.N8N_WEBHOOK_BASE_URL, 'healthz'),
+    n8nProbeUrl: bindingOrProcess(env, 'N8N_HEALTH_URL') || integrationProbeUrl(bindingOrProcess(env, 'N8N_WEBHOOK_BASE_URL'), 'healthz'),
     marketingImage: process.env.MARKETING_IMAGE_PROVIDER?.trim().toLowerCase() === 'off'
       ? undefined
       : new AiHordeMarketingImageClient(),
@@ -76,9 +92,12 @@ function getNodeApi(): ReturnType<typeof httpServerHandler> {
     hermesToolKey: process.env.HERMES_TOOL_API_KEY,
     hermesManagerUserId: process.env.HERMES_MANAGER_USER_ID,
     hermesWriteToolsEnabled: process.env.HERMES_WRITE_TOOLS_ENABLED === 'true',
-    n8nWebhookBaseUrl: process.env.N8N_WEBHOOK_BASE_URL,
-    n8nWebhookSecret: process.env.N8N_WEBHOOK_SECRET,
-    n8nManagement: new N8nManagementClient({ baseUrl: process.env.N8N_API_BASE_URL || process.env.N8N_WEBHOOK_BASE_URL, apiKey: process.env.N8N_API_KEY }),
+    n8nWebhookBaseUrl: bindingOrProcess(env, 'N8N_WEBHOOK_BASE_URL'),
+    n8nWebhookSecret: bindingOrProcess(env, 'N8N_WEBHOOK_SECRET'),
+    n8nManagement: new N8nManagementClient({
+      baseUrl: bindingOrProcess(env, 'N8N_API_BASE_URL') || bindingOrProcess(env, 'N8N_WEBHOOK_BASE_URL'),
+      apiKey: bindingOrProcess(env, 'N8N_API_KEY')
+    }),
     managerEmail: process.env.PRINTSHOP_MANAGER_EMAIL
   });
   apiServer.listen(8080);
@@ -92,15 +111,15 @@ function getGateway(): SupabaseGateway {
 }
 
 export default {
-  fetch(request: Request): Response | Promise<Response> {
+  fetch(request: Request, env: WorkerEnvironment): Response | Promise<Response> {
     const path = new URL(request.url).pathname;
-    if (path === '/mcp') return handleHermesMcp(request);
-    if (path === '/health' || path === '/ready' || path.startsWith('/api/')) return getNodeApi().fetch(request);
+    if (path === '/mcp') return handleHermesMcp(request, env);
+    if (path === '/health' || path === '/ready' || path.startsWith('/api/')) return getNodeApi(env).fetch(request);
     return new Response('Not found', { status: 404 });
   },
-  scheduled(_event: unknown, _env: unknown, context: { waitUntil(promise: Promise<unknown>): void }): void {
-    const baseUrl = process.env.N8N_WEBHOOK_BASE_URL;
-    const secret = process.env.N8N_WEBHOOK_SECRET;
+  scheduled(_event: unknown, env: WorkerEnvironment, context: { waitUntil(promise: Promise<unknown>): void }): void {
+    const baseUrl = bindingOrProcess(env, 'N8N_WEBHOOK_BASE_URL');
+    const secret = bindingOrProcess(env, 'N8N_WEBHOOK_SECRET');
     if (!baseUrl || !secret) return;
     context.waitUntil(drainAutomationOutbox({
       gateway: getGateway(),

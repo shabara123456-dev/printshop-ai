@@ -1,72 +1,106 @@
-[
-  {
-    "name": "INKORA - Weekly Manager Briefing",
-    "nodes": [
-      {
-        "parameters": {
-          "rule": {
-            "interval": [
-              {
-                "field": "weeks",
-                "triggerAtDay": [1],
-                "triggerAtHour": 9
-              }
-            ]
-          }
-        },
-        "id": "d2194d0e-cd4b-4682-ae38-7d6cbf85beba",
-        "name": "Every Monday morning",
-        "type": "n8n-nodes-base.scheduleTrigger",
-        "typeVersion": 1.2,
-        "position": [240, 280]
+{
+  "name": "INKORA - Weekly Manager Briefing",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 9
+            }
+          ]
+        }
       },
-      {
-        "parameters": {
-          "url": "http://host.docker.internal:3000/api/integrations/weekly-report",
-          "sendHeaders": true,
-          "headerParameters": {
-            "parameters": [
-              {
-                "name": "x-printshop-integration-key",
-                "value": "REPLACE_WITH_N8N_WEBHOOK_SECRET"
-              }
-            ]
-          },
-          "options": { "timeout": 30000 }
-        },
-        "id": "614bb28c-0af1-446f-b23a-e7d6b06f6315",
-        "name": "Fetch verified weekly report",
-        "type": "n8n-nodes-base.httpRequest",
-        "typeVersion": 4.2,
-        "position": [500, 280],
-        "notes": "The API calculates all figures from saved shop records. Hermes only writes the short explanation. For hosted n8n, replace host.docker.internal with the reachable API URL. Set PRINTSHOP_N8N_WEBHOOK_SECRET in n8n and the matching N8N_WEBHOOK_SECRET in the API."
-      },
-      {
-        "parameters": {
-          "fromEmail": "={{ $env.PRINTSHOP_REPORT_FROM_EMAIL }}",
-          "toEmail": "={{ $json.to_email }}",
-          "subject": "INKORA - Weekly shop report",
-          "emailFormat": "text",
-          "text": "={{ 'WEEKLY MANAGER BRIEFING\\n' + $json.narrative + '\\n\\nVerified report data:\\n' + JSON.stringify({ period: $json.period, sales: $json.sales, low_stock_items: $json.low_stock_items, production: $json.production }, null, 2) }}",
-          "options": {}
-        },
-        "id": "f5964b33-d6c9-49d6-b4df-d3ddc96a6486",
-        "name": "Email manager",
-        "type": "n8n-nodes-base.emailSend",
-        "typeVersion": 2.1,
-        "position": [760, 280],
-        "notes": "Select an SMTP credential after import and set PRINTSHOP_REPORT_FROM_EMAIL. Set PRINTSHOP_MANAGER_EMAIL in the API environment. The workflow is intentionally inactive until credentials and the API URL are configured."
-      }
-    ],
-    "connections": {
-      "Every Monday morning": { "main": [[{ "node": "Fetch verified weekly report", "type": "main", "index": 0 }]] },
-      "Fetch verified weekly report": { "main": [[{ "node": "Email manager", "type": "main", "index": 0 }]] }
+      "id": "d2194d0e-cd4b-4682-ae38-7d6cbf85beba",
+      "name": "Every Monday morning",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        280
+      ]
     },
-    "active": false,
-    "settings": { "executionOrder": "v1", "timezone": "Africa/Cairo" },
-    "versionId": "a5b2cfb6-cdb6-4aa9-a9d9-2ef990750dd4",
-    "meta": { "templateCredsSetupCompleted": false },
-    "tags": [],
-    "id": "f6b7c6b3-9a27-43fd-814b-6d43c4caf4d5"
-  }
-]
+    {
+      "parameters": {
+        "url": "https://printshop-ai.shabara123456.workers.dev/api/integrations/weekly-report",
+        "sendHeaders": false,
+        "options": {
+          "timeout": 30000
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "614bb28c-0af1-446f-b23a-e7d6b06f6315",
+      "name": "Fetch verified weekly report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        500,
+        280
+      ],
+      "notes": "Select the saved INKORA Event Webhook Header Auth credential before activating. No shared secret is stored in this workflow file."
+    },
+    {
+      "parameters": {
+        "options": {
+          "appendAttribution": false
+        },
+        "resource": "message",
+        "subject": "INKORA - Weekly shop report",
+        "message": "={{ 'WEEKLY MANAGER BRIEFING\\n' + $json.narrative + '\\n\\nVerified report data:\\n' + JSON.stringify({ period: $json.period, sales: $json.sales, low_stock_items: $json.low_stock_items, production: $json.production }, null, 2) }}",
+        "authentication": "oAuth2",
+        "emailType": "text",
+        "sendTo": "={{ $json.to_email }}",
+        "operation": "send"
+      },
+      "id": "f5964b33-d6c9-49d6-b4df-d3ddc96a6486",
+      "name": "Email manager",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        760,
+        280
+      ],
+      "notes": "Select the saved Gmail OAuth credential before activating. Uses the Gmail API over HTTPS; SMTP is blocked on Render Free."
+    }
+  ],
+  "connections": {
+    "Every Monday morning": {
+      "main": [
+        [
+          {
+            "node": "Fetch verified weekly report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch verified weekly report": {
+      "main": [
+        [
+          {
+            "node": "Email manager",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Africa/Cairo"
+  },
+  "versionId": "a5b2cfb6-cdb6-4aa9-a9d9-2ef990750dd4",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [],
+  "id": "f6b7c6b3-9a27-43fd-814b-6d43c4caf4d5"
+}

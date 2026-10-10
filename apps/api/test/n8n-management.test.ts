@@ -52,5 +52,21 @@ test('n8n API errors fail closed with no upstream details', async () => {
     baseUrl: 'https://n8n.example.test/api/v1', apiKey: 'private-key',
     fetcher: async () => new Response('authorization secret', { status: 401 })
   });
-  assert.deepEqual(await client.overview(), { status: 'unavailable', workflows: [], executions: [] });
+  assert.deepEqual(await client.overview(), { status: 'unavailable', workflows: [], executions: [], issue: 'unauthorized' });
+});
+
+test('n8n workflow list stays available when the key cannot read executions', async () => {
+  let requests = 0;
+  const client = new N8nManagementClient({
+    baseUrl: 'https://n8n.example.test', apiKey: 'private-key',
+    fetcher: async () => ++requests === 1
+      ? new Response(JSON.stringify({ data: [{ id: 'wf-1', name: 'Weekly report', active: true }] }), { status: 200 })
+      : new Response('permission denied', { status: 403 })
+  });
+  assert.deepEqual(await client.overview(), {
+    status: 'connected',
+    workflows: [{ id: 'wf-1', name: 'Weekly report', active: true, updated_at: null, tags: [] }],
+    executions: [],
+    executionsIssue: 'forbidden'
+  });
 });

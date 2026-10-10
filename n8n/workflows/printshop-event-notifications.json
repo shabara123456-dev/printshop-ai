@@ -1,138 +1,140 @@
-[
-  {
-    "name": "INKORA - Operational Event Router",
-    "nodes": [
-      {
-        "parameters": {
-          "httpMethod": "POST",
-          "path": "printshop-ai-events",
-          "authentication": "headerAuth",
-          "responseMode": "lastNode",
-          "options": {}
-        },
-        "id": "2a7f4a1c-6712-4c48-91d7-56ae252e2410",
-        "name": "Receive INKORA event",
-        "type": "n8n-nodes-base.webhook",
-        "typeVersion": 2.1,
-        "position": [
-          260,
-          300
-        ],
-        "webhookId": "printshop-ai-events",
-        "notes": "Assign the Header Auth credential named INKORA Integration Key in the n8n instance before activation."
+{
+  "name": "INKORA - Operational Event Router",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "printshop-ai-events",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {}
       },
-      {
-        "parameters": {
-          "jsCode": "const p = $json.body ?? $json;\nconst type = String(p.type ?? p.event_type ?? '');\nconst esc = (v) => String(v ?? '').replace(/[&<>\\\"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\\\"':'&quot;',\"'\":'&#39;'}[c]));\nconst manager = String(p.manager_email ?? p.to_email ?? '');\nconst customer = String(p.to_email ?? '');\nconst ref = esc(p.event_id ?? 'not provided');\nlet to = ''; let title = ''; let summary = ''; let details = '';\nswitch (type) {\n  case 'integration.test': to = manager; title = 'Automation connection test'; summary = 'INKORA successfully reached the n8n event workflow.'; details = 'No business data was changed.'; break;\n  case 'order.created': to = customer || manager; title = 'Order received'; summary = 'Your order has been received by the shop.'; details = `Order ${esc(p.order_id)} · Status ${esc(p.status)} · Total EGP ${esc(p.total)}`; break;\n  case 'order.ready': to = customer || manager; title = 'Your order is ready'; summary = 'Production has completed its quality check.'; details = `Order ${esc(p.order_id)} is ready for pickup or delivery coordination.`; break;\n  case 'order.status_changed': to = customer || manager; title = 'Order status updated'; summary = `Order ${esc(p.order_id)} changed from ${esc(p.previous_status)} to ${esc(p.status)}.`; details = `Order total: EGP ${esc(p.total)}.`; break;\n  case 'production.status_changed': if (!['ready','cancelled'].includes(String(p.status))) { to = manager; title = 'Production stage updated'; summary = `Job ${esc(p.production_job_id)} moved to ${esc(p.status)}.`; details = `Order ${esc(p.order_id)} · Previous stage ${esc(p.previous_status)}.`; } break;\n  case 'inventory.low_stock': to = manager; title = `Low stock: ${esc(p.name)}`; summary = 'Available material reached or fell below its reorder point.'; details = `Available ${esc(p.available_stock)} ${esc(p.unit)} · Reorder point ${esc(p.reorder_point)} · Suggested order ${esc(p.reorder_quantity)}.`; break;\n  case 'inventory.restocked': to = manager; title = `Material restocked: ${esc(p.name)}`; summary = 'Available stock is back above its configured reorder point.'; details = `Available ${esc(p.available_stock)} ${esc(p.unit)} · Reorder point ${esc(p.reorder_point)}.`; break;\n  case 'product.out_of_stock': to = manager; title = `Out of stock: ${esc(p.product_name)}`; summary = 'A product variant has no remaining sellable quantity.'; details = `Product ${esc(p.product_name)} · SKU ${esc(p.variant_sku)} · Check availability before promoting it.`; break;\n  case 'product.restocked': to = manager; title = `Product restocked: ${esc(p.product_name)}`; summary = 'A product variant received additional available quantity.'; details = `Product ${esc(p.product_name)} · SKU ${esc(p.variant_sku)} · Available ${esc(p.available_quantity)}.`; break;\n  case 'product.created': to = manager; title = 'Product added'; summary = `${esc(p.name)} was added to the catalog.`; details = `SKU ${esc(p.sku)} · Category ${esc(p.category)}.`; break;\n  case 'product.updated': to = manager; title = 'Product updated'; summary = `${esc(p.name)} was updated in the catalog.`; details = `SKU ${esc(p.sku)} · Category ${esc(p.category)} · Active ${esc(p.active)}.`; break;\n  case 'product.options.updated': to = manager; title = 'Product options updated'; summary = 'A manager changed configurable product options or approved surcharges.'; details = `Product ${esc(p.product_id)} · Option groups ${esc(p.option_group_count)}.`; break;\n  case 'storefront.published': to = manager; title = 'Storefront update published'; summary = `Approved storefront version ${esc(p.version)} is live.`; details = 'The customer store is serving the published configuration.'; break;\n  case 'marketing.approved': to = manager; title = 'Marketing draft approved'; summary = 'A marketing asset was approved in INKORA.'; details = `Asset ${esc(p.asset_id)} · Platform ${esc(p.platform)}.`; break;\n}\nconst send = Boolean(to && title);\nconst html = `<div style=\"margin:0;background:#f3f4f6;padding:32px 12px;font-family:Arial,sans-serif;color:#171717\"><div style=\"max-width:560px;margin:auto;background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden\"><div style=\"background:#111827;padding:20px 24px;color:#fff;font-size:18px;font-weight:700;letter-spacing:1px\">INKORA <span style=\"font-size:12px;font-weight:400;color:#cbd5e1\">STORE OPERATIONS</span></div><div style=\"padding:28px 24px\"><p style=\"margin:0 0 8px;color:#2563eb;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px\">Business update</p><h1 style=\"font-size:22px;margin:0 0 14px\">${title}</h1><p style=\"font-size:15px;line-height:1.6;color:#374151;margin:0 0 18px\">${summary}</p><div style=\"background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:16px;font-size:14px;line-height:1.6\">${details}</div><p style=\"font-size:11px;color:#6b7280;margin:22px 0 0\">Event reference: ${ref}</p></div><div style=\"border-top:1px solid #e5e7eb;padding:14px 24px;color:#6b7280;font-size:11px\">Automated business notification from INKORA</div></div></div>`;\nreturn [{json: {should_send: send, to_email: to, subject: `INKORA · ${title || 'Event ignored'}`, html, event_id: ref, event_type: type}}];"
-        },
-        "id": "dc16a9ee-b8f1-4bc0-8d19-67d0a769b5f1",
-        "name": "Route actionable business events",
-        "type": "n8n-nodes-base.code",
-        "typeVersion": 2,
-        "position": [
-          500,
-          300
-        ]
+      "id": "2a7f4a1c-6712-4c48-91d7-56ae252e2410",
+      "name": "Receive INKORA event",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        260,
+        300
+      ],
+      "webhookId": "printshop-ai-events",
+      "notes": "Select the saved INKORA Event Webhook Header Auth credential before activating."
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = $json.body ?? $json;\nconst type = String(p.type ?? p.event_type ?? '');\nconst esc = (v) => String(v ?? '').replace(/[&<>\\\"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\\\"':'&quot;',\"'\":'&#39;'}[c]));\nconst manager = String(p.manager_email ?? p.to_email ?? '');\nconst customer = String(p.to_email ?? '');\nconst ref = esc(p.event_id ?? 'not provided');\nlet to = ''; let title = ''; let summary = ''; let details = '';\nswitch (type) {\n  case 'integration.test': to = manager; title = 'Automation connection test'; summary = 'INKORA successfully reached the n8n event workflow.'; details = 'No business data was changed.'; break;\n  case 'order.created': to = customer || manager; title = 'Order received'; summary = 'Your order has been received by the shop.'; details = `Order ${esc(p.order_id)} · Status ${esc(p.status)} · Total EGP ${esc(p.total)}`; break;\n  case 'order.ready': to = customer || manager; title = 'Your order is ready'; summary = 'Production has completed its quality check.'; details = `Order ${esc(p.order_id)} is ready for pickup or delivery coordination.`; break;\n  case 'order.status_changed': to = customer || manager; title = 'Order status updated'; summary = `Order ${esc(p.order_id)} changed from ${esc(p.previous_status)} to ${esc(p.status)}.`; details = `Order total: EGP ${esc(p.total)}.`; break;\n  case 'production.status_changed': if (!['ready','cancelled'].includes(String(p.status))) { to = manager; title = 'Production stage updated'; summary = `Job ${esc(p.production_job_id)} moved to ${esc(p.status)}.`; details = `Order ${esc(p.order_id)} · Previous stage ${esc(p.previous_status)}.`; } break;\n  case 'inventory.low_stock': to = manager; title = `Low stock: ${esc(p.name)}`; summary = 'Available material reached or fell below its reorder point.'; details = `Available ${esc(p.available_stock)} ${esc(p.unit)} · Reorder point ${esc(p.reorder_point)} · Suggested order ${esc(p.reorder_quantity)}.`; break;\n  case 'inventory.restocked': to = manager; title = `Material restocked: ${esc(p.name)}`; summary = 'Available stock is back above its configured reorder point.'; details = `Available ${esc(p.available_stock)} ${esc(p.unit)} · Reorder point ${esc(p.reorder_point)}.`; break;\n  case 'product.out_of_stock': to = manager; title = `Out of stock: ${esc(p.product_name)}`; summary = 'A product variant has no remaining sellable quantity.'; details = `Product ${esc(p.product_name)} · SKU ${esc(p.variant_sku)} · Check availability before promoting it.`; break;\n  case 'product.restocked': to = manager; title = `Product restocked: ${esc(p.product_name)}`; summary = 'A product variant received additional available quantity.'; details = `Product ${esc(p.product_name)} · SKU ${esc(p.variant_sku)} · Available ${esc(p.available_quantity)}.`; break;\n  case 'product.created': to = manager; title = 'Product added'; summary = `${esc(p.name)} was added to the catalog.`; details = `SKU ${esc(p.sku)} · Category ${esc(p.category)}.`; break;\n  case 'product.updated': to = manager; title = 'Product updated'; summary = `${esc(p.name)} was updated in the catalog.`; details = `SKU ${esc(p.sku)} · Category ${esc(p.category)} · Active ${esc(p.active)}.`; break;\n  case 'product.options.updated': to = manager; title = 'Product options updated'; summary = 'A manager changed configurable product options or approved surcharges.'; details = `Product ${esc(p.product_id)} · Option groups ${esc(p.option_group_count)}.`; break;\n  case 'storefront.published': to = manager; title = 'Storefront update published'; summary = `Approved storefront version ${esc(p.version)} is live.`; details = 'The customer store is serving the published configuration.'; break;\n  case 'marketing.approved': to = manager; title = 'Marketing draft approved'; summary = 'A marketing asset was approved in INKORA.'; details = `Asset ${esc(p.asset_id)} · Platform ${esc(p.platform)}.`; break;\n}\nconst send = Boolean(to && title);\nconst html = `<div style=\"margin:0;background:#f3f4f6;padding:32px 12px;font-family:Arial,sans-serif;color:#171717\"><div style=\"max-width:560px;margin:auto;background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden\"><div style=\"background:#111827;padding:20px 24px;color:#fff;font-size:18px;font-weight:700;letter-spacing:1px\">INKORA <span style=\"font-size:12px;font-weight:400;color:#cbd5e1\">STORE OPERATIONS</span></div><div style=\"padding:28px 24px\"><p style=\"margin:0 0 8px;color:#2563eb;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px\">Business update</p><h1 style=\"font-size:22px;margin:0 0 14px\">${title}</h1><p style=\"font-size:15px;line-height:1.6;color:#374151;margin:0 0 18px\">${summary}</p><div style=\"background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:16px;font-size:14px;line-height:1.6\">${details}</div><p style=\"font-size:11px;color:#6b7280;margin:22px 0 0\">Event reference: ${ref}</p></div><div style=\"border-top:1px solid #e5e7eb;padding:14px 24px;color:#6b7280;font-size:11px\">Automated business notification from INKORA</div></div></div>`;\nreturn [{json: {should_send: send, to_email: to, subject: `INKORA · ${title || 'Event ignored'}`, html, event_id: ref, event_type: type}}];"
       },
-      {
-        "parameters": {
-          "conditions": {
-            "options": {
-              "caseSensitive": true,
-              "leftValue": "",
-              "typeValidation": "strict",
-              "version": 2
-            },
-            "conditions": [
-              {
-                "id": "5d97349e-8ad6-45db-9b5a-78f558285523",
-                "leftValue": "={{ $json.should_send }}",
-                "rightValue": true,
-                "operator": {
-                  "type": "boolean",
-                  "operation": "true",
-                  "singleValue": true
-                }
-              }
-            ],
-            "combinator": "and"
+      "id": "dc16a9ee-b8f1-4bc0-8d19-67d0a769b5f1",
+      "name": "Route actionable business events",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
           },
-          "options": {}
-        },
-        "id": "d68ee608-4137-4a11-b39f-91c9f5e72d9e",
-        "name": "Actionable event?",
-        "type": "n8n-nodes-base.if",
-        "typeVersion": 2.2,
-        "position": [
-          740,
-          300
-        ]
-      },
-      {
-        "parameters": {
-          "fromEmail": "inkora@example.com",
-          "toEmail": "={{ $json.to_email }}",
-          "subject": "={{ $json.subject }}",
-          "emailFormat": "html",
-          "html": "={{ $json.html }}",
-          "options": {}
-        },
-        "id": "2856fa98-2c7a-4809-8136-51ce1306428d",
-        "name": "Send formatted notification",
-        "type": "n8n-nodes-base.emailSend",
-        "typeVersion": 2.1,
-        "position": [
-          980,
-          220
-        ],
-        "notes": "Assign a verified SMTP credential and replace the sender address with the verified address in your email provider. Routine inventory.updated events and unknown event types are intentionally ignored."
-      }
-    ],
-    "connections": {
-      "Receive INKORA event": {
-        "main": [
-          [
+          "conditions": [
             {
-              "node": "Route actionable business events",
-              "type": "main",
-              "index": 0
-            }
-          ]
-        ]
-      },
-      "Route actionable business events": {
-        "main": [
-          [
-            {
-              "node": "Actionable event?",
-              "type": "main",
-              "index": 0
-            }
-          ]
-        ]
-      },
-      "Actionable event?": {
-        "main": [
-          [
-            {
-              "node": "Send formatted notification",
-              "type": "main",
-              "index": 0
+              "id": "5d97349e-8ad6-45db-9b5a-78f558285523",
+              "leftValue": "={{ $json.should_send }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
             }
           ],
-          []
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d68ee608-4137-4a11-b39f-91c9f5e72d9e",
+      "name": "Actionable event?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        740,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "appendAttribution": false
+        },
+        "resource": "message",
+        "subject": "={{ $json.subject }}",
+        "message": "={{ $json.html }}",
+        "authentication": "oAuth2",
+        "emailType": "html",
+        "sendTo": "={{ $json.to_email }}",
+        "operation": "send"
+      },
+      "id": "2856fa98-2c7a-4809-8136-51ce1306428d",
+      "name": "Send formatted notification",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        980,
+        220
+      ],
+      "notes": "Select the saved Gmail OAuth credential before activating. Uses the Gmail API over HTTPS; SMTP is blocked on Render Free."
+    }
+  ],
+  "connections": {
+    "Receive INKORA event": {
+      "main": [
+        [
+          {
+            "node": "Route actionable business events",
+            "type": "main",
+            "index": 0
+          }
         ]
-      }
+      ]
     },
-    "active": false,
-    "settings": {
-      "executionOrder": "v1"
+    "Route actionable business events": {
+      "main": [
+        [
+          {
+            "node": "Actionable event?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "versionId": "c6ed6480-bff6-4430-9bb7-f0fbb782aeb4",
-    "meta": {
-      "templateCredsSetupCompleted": false
-    },
-    "tags": [],
-    "id": "890917da-efd3-4dec-86f5-a8d314d4c1cc"
-  }
-]
+    "Actionable event?": {
+      "main": [
+        [
+          {
+            "node": "Send formatted notification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "c6ed6480-bff6-4430-9bb7-f0fbb782aeb4",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [],
+  "id": "890917da-efd3-4dec-86f5-a8d314d4c1cc"
+}

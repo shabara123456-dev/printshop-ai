@@ -9,6 +9,7 @@ SUPABASE_PUBLISHABLE_KEY = "sb_publishable_xOg6Kmyk_ndO4fC_0s-m0w_44HQqmlm"
 PRINTSHOP_API_URL = "https://printshop-ai.shabara123456.workers.dev"
 MARKETING_IMAGE_PROVIDER = "ai_horde"
 HERMES_WRITE_TOOLS_ENABLED = "true"
+N8N_API_BASE_URL = "https://inkora-n8n.onrender.com"
 
 [assets]
 directory = "./dist/web"

@@ -20,6 +20,23 @@ export type StorefrontConfig = {
   hero_description_en: string; hero_description_ar: string;
   announcement_en: string; announcement_ar: string;
   accent_color: string; featured_product_ids: string[];
+  theme: 'midnight' | 'paper' | 'studio'; background_color: string; surface_color: string; text_color: string; button_color: string;
+  font_family: 'sans' | 'serif'; layout: 'wide' | 'editorial'; hero_image_path: string; logo_path: string; logo_placement: 'left' | 'center' | 'right';
+  cta_label_en: string; cta_label_ar: string; featured_categories: string[];
+};
+
+export type MarketingPlanSettings = {
+  goals: string; target_audience: string; product_ids: string[]; platforms: string[];
+  campaign_themes: string[]; posts_per_month: number; important_dates: Array<{ date: string; label: string }>;
+  brand_voice: string; visual_preferences: string;
+};
+
+const defaultMarketingPlanSettings: MarketingPlanSettings = {
+  goals: 'Build local brand awareness and generate qualified print enquiries.',
+  target_audience: 'Small businesses, cafes, and local organizations in Mansoura.', product_ids: [],
+  platforms: ['instagram'], campaign_themes: ['product_showcase','educational','brand','engagement'], posts_per_month: 4,
+  important_dates: [], brand_voice: 'Warm, confident, clear, and locally relevant.',
+  visual_preferences: 'Professional product photography with realistic print materials and restrained brand colors.'
 };
 
 const defaultStorefrontConfig: StorefrontConfig = {
@@ -28,7 +45,9 @@ const defaultStorefrontConfig: StorefrontConfig = {
   hero_title_en: 'Make your next idea tangible.', hero_title_ar: 'أفكارك، مطبوعة بعناية.',
   hero_description_en: 'Thoughtful print for ambitious brands. Configure a product and follow every production step from our Mansoura shop.',
   hero_description_ar: 'طباعة مخصصة، تصميم مدروس، ومتابعة واضحة من أول طلب حتى التسليم.',
-  announcement_en: '', announcement_ar: '', accent_color: '#6f9fee', featured_product_ids: []
+  announcement_en: '', announcement_ar: '', accent_color: '#6f9fee', featured_product_ids: [],
+  theme: 'midnight', background_color: '#101114', surface_color: '#191b20', text_color: '#f5f5f5', button_color: '#6f9fee',
+  font_family: 'sans', layout: 'wide', hero_image_path: '', logo_path: '', logo_placement: 'left', cta_label_en: 'Explore the store', cta_label_ar: 'اكتشف المتجر', featured_categories: []
 };
 
 export type AuthGateway = {
@@ -49,6 +68,10 @@ export type AuthGateway = {
   getSalesReport(from: string, to: string): Promise<Record<string, unknown>>;
   getBusinessAnalytics?(from: string, to: string): Promise<Record<string, unknown>>;
   createProduct?(input: Record<string, unknown>): Promise<string>;
+  quickCreateProduct?(actorId: string, input: { product: Record<string, unknown>; variant: Record<string, unknown>; unitPrice: string; designFee: string; showInStore: boolean }): Promise<string>;
+  configureProductOffer?(actorId: string, productId: string, unitPrice: string, availableQuantity: number | null, reason: string): Promise<void>;
+  deleteUnreferencedProduct?(actorId: string, productId: string): Promise<void>;
+  updateProductShopPrice?(actorId: string, variantId: string, unitPrice: string, designFee: string, reason: string): Promise<void>;
   updateProduct?(id: string, input: Record<string, unknown>): Promise<void>;
   promoteDemoProduct?(actorId: string, id: string): Promise<void>;
   createProductVariant?(productId: string, input: Record<string, unknown>): Promise<string>;
@@ -71,13 +94,31 @@ export type AuthGateway = {
   updateDesignRequestFile(id: string, path: string): Promise<void>;
   createDesignRequest(input: { customerId: string; orderId: string | null; brief: string; referenceFiles: string[]; customerNotes: string | null; designFee: number }): Promise<string>;
   orderBelongsToCustomer(orderId: string, customerId: string): Promise<boolean>;
+  customerDesignUploadAllowed?(orderId: string, customerId: string): Promise<boolean>;
   createMaterial(input: { sku: string; name: string; category: string; unit: string; reorderPoint: number; reorderQuantity: number }): Promise<string>;
   createMaterialRequirement(input: { productId: string; variantId: string; materialId: string; quantityPerUnit: number; wasteFactor: number }): Promise<string>;
   listMarketingAssets(): Promise<unknown[]>;
-  createMarketingAsset(input: { orderId: null; productId: string | null; campaignBrief: string; campaignType: string; createdBy: string | null; designUrl: string | null; platform: string; caption: string }): Promise<string>;
+  listMarketingCampaigns?(): Promise<unknown[]>;
+  createMarketingCampaign?(input: { name: string; month: string; objective: string; audience: string; language: 'en' | 'ar'; tone: string; frequency: string; preferredTimes: string[]; platforms: string[]; productIds: string[]; requestedPosts: number; createdBy: string }): Promise<string>;
+  createMarketingCampaignWithPosts?(input: { campaign: Record<string, unknown>; posts: Array<Record<string, unknown>>; createdBy: string | null }): Promise<{ campaignId: string; assetIds: string[] }>;
+  updateMarketingCampaign?(id: string, input: { status?: 'draft' | 'active' | 'paused' | 'completed'; name?: string; objective?: string; audience?: string; tone?: string }): Promise<boolean>;
+  createMarketingAsset(input: { orderId: null; productId: string | null; campaignBrief: string; campaignType: string; createdBy: string | null; designUrl: string | null; platform: string; caption: string; scheduledAt?: string | null; campaignId?: string | null; imageStatus?: 'not_generated' | 'processing' | 'generated' | 'failed'; imageError?: string | null }): Promise<string>;
   uploadMarketingImage?(input: { id: string; mimeType: string; data: Buffer }): Promise<string>;
+  updateMarketingAssetImage?(id: string, path: string | null, status: 'generated' | 'failed', error?: string | null): Promise<boolean>;
   createSignedMarketingImageUrl?(path: string, expiresInSeconds?: number): Promise<string>;
+  getProductImageAllowance?(): Promise<{ included: number; used: number; remaining: number }>;
+  setProductImageAllowance?(actorId: string, included: number): Promise<void>;
+  reserveProductImageGeneration?(input: { id: string; productId: string; requestedBy: string }): Promise<void>;
+  finishProductImageGeneration?(input: { id: string; status: 'completed' | 'failed'; imagePath?: string | null; model?: string | null }): Promise<void>;
+  listProductImageGenerations?(productId: string): Promise<unknown[]>;
+  selectProductImage?(actorId: string, productId: string, generationId: string): Promise<void>;
+  uploadProductImage?(input: { id: string; productId: string; mimeType: string; data: Buffer }): Promise<string>;
   updateMarketingAssetStatus(id: string, status: 'approved' | 'rejected'): Promise<void>;
+  updatePendingMarketingDraft?(id: string, caption: string, scheduledAt: string | null, options?: { productId?: string | null; platform?: string }): Promise<boolean>;
+  deletePendingMarketingDraft?(id: string): Promise<boolean>;
+  deletePendingMarketingDrafts?(actorId: string): Promise<number>;
+  getMarketingPlanSettings?(): Promise<MarketingPlanSettings | null>;
+  saveMarketingPlanSettings?(actorId: string, settings: MarketingPlanSettings): Promise<void>;
   recordAuditLog?(input: { userId: string; action: string; entityType: string; entityId: string | null; metadata: Record<string, unknown> }): Promise<void>;
   createHermesActionProposal?(input: { id: string; managerId: string; action: string; arguments: Record<string, unknown> }): Promise<string>;
   approveHermesActionProposal?(id: string, managerId: string): Promise<boolean>;
@@ -89,6 +130,7 @@ export type AuthGateway = {
   publishStorefrontConfig?(actorId: string, revisionId: string): Promise<{ id: string; version: number; status: string }>;
   listAutomationEvents?(): Promise<Array<Record<string, unknown>>>;
   retryDeadAutomationEvent?(actorId: string, eventId: string): Promise<boolean>;
+  deleteAutomationEvent?(actorId: string, eventId: string): Promise<boolean>;
 };
 
 export type CommerceVertical = { vertical_key: string; label_en: string; label_ar: string; capabilities: Record<string, unknown>; active: boolean };
@@ -227,7 +269,7 @@ function optionalPrice(value: unknown, name: string, fallback = '0.00'): string 
 function storefrontConfig(value: unknown): StorefrontConfig {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new AppError('INVALID_REQUEST', 400, 'config must be an object.');
   const row = value as Record<string, unknown>;
-  const allowed = new Set(['store_name','tagline','hero_eyebrow','hero_title_en','hero_title_ar','hero_description_en','hero_description_ar','announcement_en','announcement_ar','accent_color','featured_product_ids']);
+  const allowed = new Set(['store_name','tagline','hero_eyebrow','hero_title_en','hero_title_ar','hero_description_en','hero_description_ar','announcement_en','announcement_ar','accent_color','featured_product_ids','theme','background_color','surface_color','text_color','button_color','font_family','layout','hero_image_path','logo_path','logo_placement','cta_label_en','cta_label_ar','featured_categories']);
   if (Object.keys(row).some((key) => !allowed.has(key))) throw new AppError('INVALID_REQUEST', 400, 'config contains unsupported storefront fields.');
   const color = requiredText(row.accent_color, 'accent_color', 7);
   if (!/^#[0-9a-f]{6}$/i.test(color)) throw new AppError('INVALID_REQUEST', 400, 'accent_color must be a six-digit hex color.');
@@ -240,6 +282,23 @@ function storefrontConfig(value: unknown): StorefrontConfig {
     if (typeof text !== 'string' || text.length > max) throw new AppError('INVALID_REQUEST', 400, `${field} must be a string no longer than ${max} characters.`);
     return text.trim();
   };
+  const colorField = (field: string, fallback: string) => {
+    const candidate = row[field] ?? fallback;
+    if (typeof candidate !== 'string' || !/^#[0-9a-f]{6}$/i.test(candidate)) throw new AppError('INVALID_REQUEST', 400, `${field} must be a six-digit hex color.`);
+    return candidate.toLowerCase();
+  };
+  const choice = <T extends string>(field: string, values: readonly T[], fallback: T): T => {
+    const candidate = row[field] ?? fallback;
+    if (typeof candidate !== 'string' || !values.includes(candidate as T)) throw new AppError('INVALID_REQUEST', 400, `${field} has an unsupported value.`);
+    return candidate as T;
+  };
+  const assetPath = (field: string) => {
+    const candidate = row[field] ?? '';
+    if (typeof candidate !== 'string' || candidate.length > 512 || (candidate && !candidate.startsWith('storefront/'))) throw new AppError('INVALID_REQUEST', 400, `${field} must be a storefront asset path.`);
+    return candidate;
+  };
+  const categories = row.featured_categories ?? [];
+  if (!Array.isArray(categories) || categories.length > 20 || categories.some((item) => typeof item !== 'string' || item.trim().length < 1 || item.trim().length > 80)) throw new AppError('INVALID_REQUEST', 400, 'featured_categories must contain up to 20 category names.');
   return {
     store_name: requiredText(row.store_name, 'store_name', 80),
     tagline: requiredText(row.tagline, 'tagline', 120),
@@ -251,7 +310,45 @@ function storefrontConfig(value: unknown): StorefrontConfig {
     announcement_en: optionalText('announcement_en', 240),
     announcement_ar: optionalText('announcement_ar', 240),
     accent_color: color.toLowerCase(),
-    featured_product_ids: ids
+    featured_product_ids: ids,
+    theme: choice('theme', ['midnight','paper','studio'] as const, 'midnight'),
+    background_color: colorField('background_color', '#101114'), surface_color: colorField('surface_color', '#191b20'),
+    text_color: colorField('text_color', '#f5f5f5'), button_color: colorField('button_color', color.toLowerCase()),
+    font_family: choice('font_family', ['sans','serif'] as const, 'sans'), layout: choice('layout', ['wide','editorial'] as const, 'wide'),
+    hero_image_path: assetPath('hero_image_path'), logo_path: assetPath('logo_path'), logo_placement: choice('logo_placement', ['left','center','right'] as const, 'left'),
+    cta_label_en: optionalText('cta_label_en', 80) || 'Explore the store', cta_label_ar: optionalText('cta_label_ar', 80) || 'اكتشف المتجر',
+    featured_categories: [...new Set((categories as string[]).map((item) => item.trim()))]
+  };
+}
+
+function marketingPlanSettings(value: unknown): MarketingPlanSettings {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new AppError('INVALID_REQUEST', 400, 'settings must be an object.');
+  const row = value as Record<string, unknown>;
+  const text = (field: string, max: number) => {
+    const candidate = row[field];
+    if (typeof candidate !== 'string' || candidate.trim().length > max) throw new AppError('INVALID_REQUEST', 400, `${field} must be a string of at most ${max} characters.`);
+    return candidate.trim();
+  };
+  const stringList = (field: 'platforms' | 'campaign_themes', allowed: string[], max: number, pattern?: RegExp) => {
+    const candidate = row[field];
+    if (!Array.isArray(candidate) || candidate.length < 1 || candidate.length > max || candidate.some((item) => typeof item !== 'string' || item.length > 80 || (pattern && !pattern.test(item)) || !allowed.includes(item))) throw new AppError('INVALID_REQUEST', 400, `${field} contains unsupported or too many values.`);
+    return [...new Set(candidate as string[])];
+  };
+  const ids = row.product_ids ?? [];
+  if (!Array.isArray(ids) || ids.length > 20) throw new AppError('INVALID_REQUEST', 400, 'product_ids must contain up to 20 products.');
+  const productIds = ids.map((id, index) => uuid(id, `product_ids[${index}]`));
+  if (new Set(productIds).size !== productIds.length) throw new AppError('INVALID_REQUEST', 400, 'product_ids cannot contain duplicates.');
+  const frequency = Number(row.posts_per_month ?? defaultMarketingPlanSettings.posts_per_month);
+  if (!Number.isInteger(frequency) || frequency < 1 || frequency > 12) throw new AppError('INVALID_REQUEST', 400, 'posts_per_month must be a whole number from 1 to 12.');
+  const dates = row.important_dates ?? [];
+  if (!Array.isArray(dates) || dates.length > 20 || dates.some((item) => !item || typeof item !== 'object' || Array.isArray(item) || typeof (item as Record<string, unknown>).date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(String((item as Record<string, unknown>).date)) || typeof (item as Record<string, unknown>).label !== 'string' || String((item as Record<string, unknown>).label).trim().length > 100)) throw new AppError('INVALID_REQUEST', 400, 'important_dates must contain at most 20 date/label entries.');
+  return {
+    goals: text('goals', 1000), target_audience: text('target_audience', 500), product_ids: productIds,
+    platforms: stringList('platforms', ['instagram','facebook','linkedin','x','general'], 5),
+    campaign_themes: stringList('campaign_themes', ['product_showcase','promotion','educational','seasonal','brand','engagement','new_product'], 10, /^[a-z_]+$/),
+    posts_per_month: frequency,
+    important_dates: (dates as Array<{ date: string; label: string }>).map((item) => ({ date: item.date, label: item.label.trim() })),
+    brand_voice: text('brand_voice', 500), visual_preferences: text('visual_preferences', 500)
   };
 }
 
@@ -299,7 +396,7 @@ function requireRole(actor: Actor, roles: Role[]): void {
   if (!roles.includes(actor.role)) throw new AppError('FORBIDDEN', 403, 'Your role cannot access this operation.');
 }
 
-const hermesInstructions = `You are Hermes, the INKORA store operations assistant. Use INKORA tools for live business facts and supported manager actions across printing, clothing, electronics, cosmetics, furniture, and generic stores. The backend is authoritative for products, prices, stock, orders, and production; never invent business facts or prices. Use read tools before proposing a change when needed. A write tool first creates a pending proposal and returns an action ID. Explain the exact item and values and ask the manager to reply exactly "I CONFIRM THIS CHANGE <action_id>". Do not repeat the write tool until the manager's next message contains that exact phrase and the same ID. Never infer approval from earlier, vague, or unrelated messages. Storefront updates create an unpublished versioned draft; tell the manager to preview and publish it in Storefront settings. Never claim it is live until the manager publishes it. Product drafts remain inactive until configured with a variant, approved price, and stock. Never use a write tool to set or estimate prices, mark payment as paid, publish social posts, or claim an unavailable integration worked. The sales report measures order value, not cash collected. If a tool fails, report the failure and do not claim success.`;
+const hermesInstructions = `You are Hermes, the INKORA store operations assistant. Use INKORA tools for live business facts and supported manager actions across printing, clothing, electronics, cosmetics, furniture, and generic stores. The backend is authoritative for products, prices, stock, orders, and production; never invent business facts or prices. Use read tools before proposing a change when needed. A write tool first creates a pending proposal and returns an action ID. Explain the exact item and values and ask the manager to reply exactly "I CONFIRM THIS CHANGE <action_id>". Do not repeat the write tool until the manager's next message contains that exact phrase and the same ID. Never infer approval from earlier, vague, or unrelated messages. Never delete, archive, retry, or otherwise alter n8n workflows, event history, or scheduled automations. Only explain automation status; automation edits must be made in the Automations workspace after an explicit manager action. Storefront updates create an unpublished versioned draft; tell the manager to preview and publish it in Storefront settings. Never claim it is live until the manager publishes it. Product drafts remain inactive until configured with a variant, approved price, and stock. Never use a write tool to set or estimate prices, mark payment as paid, publish social posts, or claim an unavailable integration worked. The sales report measures order value, not cash collected. If a tool fails, report the failure and do not claim success.`;
 
 function isIsoDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -475,33 +572,43 @@ export function createApiServer(deps: Dependencies): Server {
         return;
       }
       try {
-        const products = (await deps.gateway.listProducts()).filter((value) => value && typeof value === 'object').map((value) => {
+        const settings = await deps.gateway.getMarketingPlanSettings?.() ?? defaultMarketingPlanSettings;
+        const allProducts = (await deps.gateway.listProducts()).filter((value) => value && typeof value === 'object').map((value) => {
           const product = value as Record<string, unknown>;
-          return { name: product.name, category: product.category, description: product.description };
+          return { id: product.id, name: product.name, category: product.category, description: product.description };
         }).slice(0, 40);
+        const products = settings.product_ids.length ? allProducts.filter((product) => settings.product_ids.includes(String(product.id))) : allProducts;
         const start = new Date();
         start.setUTCDate(1);
-        const schedule = [3, 10, 17, 24].map((day, index) => {
+        const daysInMonth = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0)).getUTCDate();
+        const schedule = Array.from({ length: settings.posts_per_month }, (_, index) => {
+          const day = Math.max(1, Math.floor(((index + 1) * daysInMonth) / (settings.posts_per_month + 1)));
           const date = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), day, 10));
-          return { date: date.toISOString(), slot: index + 1, approval_required: true };
+          return { date: date.toISOString(), slot: index + 1, approval_required: true,
+            important_date: settings.important_dates.find((item) => item.date === date.toISOString().slice(0, 10))?.label ?? null,
+            platform: settings.platforms[index % settings.platforms.length], theme: settings.campaign_themes[index % settings.campaign_themes.length] };
         });
         if (!deps.hermes) throw new AppError('HERMES_UNAVAILABLE', 503, 'Hermes is not configured; the monthly marketing plan was not generated.');
-        let drafts: Array<{ date: string; platform: string; caption: string }>;
+        let drafts: Array<{ date: string; platform: string; theme: string; caption: string; productId: string | null }>;
         let model: string | null = null;
         {
           const started = Date.now();
           try {
             const completion = await deps.hermes.complete([
-              { role: 'system', content: 'Create exactly four short, truthful social media captions for a printing business, one per supplied slot. Use only the supplied product facts. Do not invent discounts, prices, guarantees, customer stories, or services. Return only a JSON array of four objects with keys slot (integer), platform (instagram), caption (string). Each caption needs a CTA and 3 to 5 relevant hashtags. These are approval-required drafts; do not say they are published.' },
-              { role: 'user', content: JSON.stringify({ products, schedule: schedule.map(({ slot, date }) => ({ slot, date })) }) }
+              { role: 'system', content: `Create exactly ${schedule.length} truthful social posts for the supplied campaign plan. Use only supplied product facts. Do not invent discounts, prices, guarantees, customer stories, or services. Write in the supplied brand voice for the target audience and goal. Use each slot's requested theme, platform, date, and important-date context. Return only a JSON array of ${schedule.length} objects with keys slot (integer), caption (string). Each caption needs a clear CTA and 3 to 5 relevant hashtags. These are approval-required drafts; do not say they are published.` },
+              { role: 'user', content: JSON.stringify({ goal: settings.goals, target_audience: settings.target_audience, brand_voice: settings.brand_voice, visual_preferences: settings.visual_preferences, products: products.map(({ name, category, description }) => ({ name, category, description })), schedule }) }
             ]);
             const raw = requiredText(completion.content, 'marketing plan', 12000).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
             const parsed: unknown = JSON.parse(raw);
-            if (!Array.isArray(parsed) || parsed.length !== 4) throw new AppError('AI_INVALID_RESPONSE', 502, 'Hermes did not return four valid monthly post drafts.');
+            if (!Array.isArray(parsed) || parsed.length !== schedule.length) throw new AppError('AI_INVALID_RESPONSE', 502, 'Hermes did not return the configured number of monthly post drafts.');
             drafts = parsed.map((item, index) => {
               if (!item || typeof item !== 'object') throw new AppError('AI_INVALID_RESPONSE', 502, 'Hermes returned an invalid post draft.');
               const row = item as Record<string, unknown>;
-              return { date: schedule[index].date, platform: 'instagram', caption: requiredText(row.caption, 'caption', 2000) };
+              return {
+                date: schedule[index].date, platform: schedule[index].platform, theme: schedule[index].theme,
+                caption: requiredText(row.caption, 'caption', 2000),
+                productId: products.length ? String(products[index % products.length].id) : null
+              };
             });
             model = completion.model;
             await deps.gateway.recordAiRun({ feature: 'monthly_marketing_plan', model, inputTokens: completion.usage?.prompt_tokens ?? 0, outputTokens: completion.usage?.completion_tokens ?? 0, latencyMs: Date.now() - started, success: true });
@@ -518,13 +625,13 @@ export function createApiServer(deps: Dependencies): Server {
           const imageStarted = Date.now();
           let imageModel: string | null = null;
           try {
-            const prompt = `Create a polished, photorealistic square Instagram campaign image for a professional Egyptian print shop. Campaign caption: ${draft.caption}. Make a visual that matches the campaign subject using realistic paper, ink, or print materials. Studio product photography, refined dark background, controlled blue accent, realistic soft lighting. No readable text, logos, watermark, people, customer work, or claims.`;
+            const product = products.find((item) => String(item.id) === draft.productId);
+            const prompt = `Create a polished, photorealistic square campaign image for a professional Egyptian print shop. Visual direction: ${settings.visual_preferences}. Campaign theme: ${draft.theme}. Product: ${product ? `${product.name} (${product.category})${product.description ? ` — ${product.description}` : ''}` : 'brand awareness for a print shop'}. Caption context: ${draft.caption}. Use realistic print materials and studio product photography. No readable text, logos, watermark, people, customer work, or unverified claims.`;
             const generated = await deps.marketingImage.generate(prompt);
             imageModel = generated.model;
             if (!['image/png', 'image/jpeg', 'image/webp'].includes(generated.mimeType) || generated.data.length > 12_000_000) throw new AppError('INVALID_GENERATED_IMAGE', 502, 'The image provider returned unsupported artwork.');
             const path = await deps.gateway.uploadMarketingImage({ id: randomUUID(), mimeType: generated.mimeType, data: generated.data });
-            const assetId = await deps.gateway.createMarketingAsset({ orderId: null, productId: null, campaignBrief: `Monthly ${start.toISOString().slice(0, 7)} marketing plan · slot ${index + 1}`, campaignType: 'product_showcase', createdBy: null, designUrl: path, platform: 'instagram', caption: draft.caption });
-            post.asset_id = assetId;
+            post.design_path = path;
             post.image_status = 'generated';
             post.image_model = generated.model;
             if (deps.gateway.createSignedMarketingImageUrl) {
@@ -547,7 +654,38 @@ export function createApiServer(deps: Dependencies): Server {
           for (const [index, draft] of drafts.entries()) {
             posts.push(await generatePostImage(draft, index));
           }
-        send(response, 200, { generated_at: new Date().toISOString(), month: start.toISOString().slice(0, 7), posts, image_generation_available: Boolean(deps.marketingImage && deps.gateway.uploadMarketingImage), image_provider: deps.marketingImage ? 'AI Horde (free community queue)' : null, model, to_email: deps.managerEmail ?? null });
+        if (deps.gateway.createMarketingCampaignWithPosts) {
+          const result = await deps.gateway.createMarketingCampaignWithPosts({
+            createdBy: null,
+            campaign: {
+              name: `Monthly ${start.toISOString().slice(0, 7)} marketing plan`, month: start.toISOString().slice(0, 7),
+              objective: settings.goals, target_audience: settings.target_audience, language: 'en', tone: settings.brand_voice,
+              posting_frequency: 'monthly', preferred_times: ['10:00'], platforms: settings.platforms,
+              product_ids: settings.product_ids, requested_posts: posts.length
+            },
+            posts: posts.map((post, index) => ({
+              product_id: drafts[index]?.productId ?? null, theme: String(post.theme ?? 'product_showcase'),
+              caption: String(post.caption), platform: String(post.platform), scheduled_at: String(post.date),
+              design_path: typeof post.design_path === 'string' ? post.design_path : null,
+              image_status: post.image_status === 'generated' ? 'generated' : post.image_status === 'failed' ? 'failed' : 'not_generated',
+              image_error: typeof post.image_error === 'string' ? post.image_error : null
+            }))
+          });
+          posts.forEach((post, index) => { post.asset_id = result.assetIds[index]; delete post.design_path; });
+        } else {
+          for (const [index, post] of posts.entries()) {
+            const assetId = await deps.gateway.createMarketingAsset({
+              orderId: null, productId: drafts[index]?.productId ?? null,
+              campaignBrief: `Monthly ${start.toISOString().slice(0, 7)} marketing plan · slot ${index + 1}`,
+              campaignType: String(post.theme ?? 'product_showcase'), createdBy: null,
+              designUrl: typeof post.design_path === 'string' ? post.design_path : null,
+              platform: String(post.platform), caption: String(post.caption), scheduledAt: String(post.date)
+            });
+            post.asset_id = assetId;
+            delete post.design_path;
+          }
+        }
+        send(response, 200, { generated_at: new Date().toISOString(), month: start.toISOString().slice(0, 7), goal: settings.goals, posts, image_generation_available: Boolean(deps.marketingImage && deps.gateway.uploadMarketingImage), image_provider: deps.marketingImage ? 'AI Horde (free community queue)' : null, model, to_email: deps.managerEmail ?? null });
       } catch (error) { sendError(response, error, requestId); }
       return;
     }
@@ -827,6 +965,15 @@ export function createApiServer(deps: Dependencies): Server {
         send(response, 200, { retried: true, event_id: eventId });
         return;
       }
+      const automationDeleteMatch = method === 'DELETE' ? /^\/api\/manager\/automations\/events\/([^/]+)$/.exec(path) : null;
+      if (automationDeleteMatch) {
+        requireRole(actor, ['manager','admin']);
+        if (!deps.gateway.deleteAutomationEvent) throw new AppError('AUTOMATION_UNAVAILABLE', 503, 'Automation event deletion is not available on this server.');
+        const eventId = uuid(decodePathSegment(automationDeleteMatch[1], 'event_id'), 'event_id');
+        if (!await deps.gateway.deleteAutomationEvent(actor.id, eventId)) throw new AppError('AUTOMATION_EVENT_NOT_DELETABLE', 409, 'Only pending or dead automation events can be deleted.');
+        send(response, 200, { deleted: true, event_id: eventId });
+        return;
+      }
 
       if (method === 'GET' && path === '/api/manager/storefront') {
         requireRole(actor, ['manager','admin']);
@@ -878,6 +1025,7 @@ export function createApiServer(deps: Dependencies): Server {
         const body = await readJson(request);
         if (body.requires_design !== undefined && typeof body.requires_design !== 'boolean') throw new AppError('INVALID_REQUEST', 400, 'requires_design must be a boolean.');
         if (body.requires_size !== undefined && typeof body.requires_size !== 'boolean') throw new AppError('INVALID_REQUEST', 400, 'requires_size must be a boolean.');
+        if (body.allow_customer_design_upload !== undefined && typeof body.allow_customer_design_upload !== 'boolean') throw new AppError('INVALID_REQUEST', 400, 'allow_customer_design_upload must be a boolean.');
         if (body.active !== undefined && typeof body.active !== 'boolean') throw new AppError('INVALID_REQUEST', 400, 'active must be a boolean.');
         const verticalKey = body.vertical_key === undefined ? 'printing' : requiredText(body.vertical_key, 'vertical_key', 40);
         if (!/^[a-z][a-z0-9_]{0,39}$/.test(verticalKey)) throw new AppError('INVALID_REQUEST', 400, 'vertical_key has an invalid format.');
@@ -889,10 +1037,89 @@ export function createApiServer(deps: Dependencies): Server {
           sku: requiredText(body.sku, 'sku', 80), name: requiredText(body.name, 'name', 200),
           category: requiredText(body.category, 'category', 80), base_unit: requiredText(body.base_unit, 'base_unit', 40),
           description: typeof body.description === 'string' ? body.description.trim().slice(0, 4000) : '',
+          material_description: typeof body.material_description === 'string' ? body.material_description.trim().slice(0, 240) : '',
           vertical_key: verticalKey, attributes: productAttributes(body.attributes),
-          requires_design: body.requires_design ?? false, requires_size: body.requires_size ?? false, active: body.active ?? true
+          requires_design: body.requires_design ?? false, requires_size: body.requires_size ?? false,
+          allow_customer_design_upload: body.allow_customer_design_upload ?? false, active: body.active ?? true
         });
         send(response, 201, { product_id: id });
+        return;
+      }
+      if (method === 'POST' && path === '/api/manager/products/quick-create') {
+        requireRole(actor, ['manager', 'admin']);
+        if (!deps.gateway.quickCreateProduct) throw new AppError('PRODUCT_ADMIN_UNAVAILABLE', 503, 'Quick product setup is not available on this server.');
+        const body = await readJson(request);
+        const verticalKey = body.vertical_key === undefined ? 'printing' : requiredText(body.vertical_key, 'vertical_key', 40);
+        if (!/^[a-z][a-z0-9_]{0,39}$/.test(verticalKey)) throw new AppError('INVALID_REQUEST', 400, 'vertical_key has an invalid format.');
+        if (deps.gateway.listVerticals) {
+          const verticals = await deps.gateway.listVerticals();
+          if (!verticals.some((vertical) => vertical.active && vertical.vertical_key === verticalKey)) throw new AppError('INVALID_VERTICAL', 422, 'Select an active commerce vertical.');
+        }
+        for (const field of ['requires_size', 'allow_customer_design_upload', 'show_in_store'] as const) {
+          if (body[field] !== undefined && typeof body[field] !== 'boolean') throw new AppError('INVALID_REQUEST', 400, `${field} must be a boolean.`);
+        }
+        const sku = requiredText(body.sku, 'sku', 80);
+        const name = requiredText(body.name, 'name', 200);
+        const unitPrice = optionalPrice(body.unit_price, 'unit_price');
+        if (unitPrice === null) throw new AppError('INVALID_REQUEST', 400, 'unit_price is required.');
+        const stock = body.available_quantity === undefined || body.available_quantity === null || body.available_quantity === ''
+          ? null : nonnegativeWholeNumber(body.available_quantity, 'available_quantity');
+        if ((body.width_cm === undefined || body.width_cm === null || body.width_cm === '') !== (body.height_cm === undefined || body.height_cm === null || body.height_cm === '')) {
+          throw new AppError('INVALID_REQUEST', 400, 'Enter both width and height, or leave both empty.');
+        }
+        const id = await deps.gateway.quickCreateProduct(actor.id, {
+          product: {
+            sku, name, category: requiredText(body.category, 'category', 80), base_unit: requiredText(body.base_unit, 'base_unit', 40),
+            description: typeof body.description === 'string' ? body.description.trim().slice(0, 4000) : '',
+            material_description: typeof body.material_description === 'string' ? body.material_description.trim().slice(0, 240) : '',
+            vertical_key: verticalKey, attributes: {}, requires_design: false, requires_size: body.requires_size === true,
+            allow_customer_design_upload: body.allow_customer_design_upload === true
+          },
+          variant: {
+            sku: `${sku}-1`, name, width_cm: optionalDimension(body.width_cm, 'width_cm'), height_cm: optionalDimension(body.height_cm, 'height_cm'),
+            material: typeof body.material === 'string' && body.material.trim() ? requiredText(body.material, 'material', 120) : null,
+            finishing: null, attributes: {}, available_quantity: stock
+          },
+          unitPrice, designFee: optionalPrice(body.design_fee, 'design_fee'),
+          showInStore: body.show_in_store !== false
+        });
+        send(response, 201, { product_id: id, status: body.show_in_store === false ? 'hidden' : 'active' });
+        return;
+      }
+      const productOfferMatch = method === 'POST' ? path.match(/^\/api\/manager\/products\/([0-9a-f-]{36})\/offer$/i) : null;
+      if (productOfferMatch) {
+        requireRole(actor, ['manager', 'admin']);
+        if (!deps.gateway.configureProductOffer) throw new AppError('PRODUCT_ADMIN_UNAVAILABLE', 503, 'Product setup is not available on this server.');
+        const body = await readJson(request);
+        const unitPrice = optionalPrice(body.unit_price, 'unit_price');
+        if (unitPrice === null) throw new AppError('INVALID_REQUEST', 400, 'Enter a valid non-negative selling price.');
+        const quantity = body.available_quantity === undefined || body.available_quantity === null || body.available_quantity === ''
+          ? null : nonnegativeWholeNumber(body.available_quantity, 'available_quantity');
+        const reason = requiredText(body.reason ?? 'Manager set initial product price and quantity', 'reason', 500);
+        await deps.gateway.configureProductOffer(actor.id, uuid(decodePathSegment(productOfferMatch[1], 'product_id'), 'product_id'), unitPrice, quantity, reason);
+        send(response, 200, { status: 'configured' });
+        return;
+      }
+      if (method === 'DELETE' && path.startsWith('/api/manager/products/')) {
+        requireRole(actor, ['manager', 'admin']);
+        if (!deps.gateway.deleteUnreferencedProduct) throw new AppError('PRODUCT_ADMIN_UNAVAILABLE', 503, 'Permanent product deletion is not available on this server.');
+        const id = uuid(path.slice('/api/manager/products/'.length), 'product_id');
+        await deps.gateway.deleteUnreferencedProduct(actor.id, id);
+        send(response, 200, { product_id: id, status: 'deleted' });
+        return;
+      }
+      const simplePriceMatch = method === 'POST' ? path.match(/^\/api\/manager\/products\/([0-9a-f-]{36})\/price$/i) : null;
+      if (simplePriceMatch) {
+        requireRole(actor, ['manager', 'admin']);
+        if (!deps.gateway.updateProductShopPrice) throw new AppError('PRODUCT_ADMIN_UNAVAILABLE', 503, 'Product price editing is not available on this server.');
+        const body = await readJson(request);
+        const unitPrice = optionalPrice(body.unit_price, 'unit_price');
+        const designFee = optionalPrice(body.design_fee ?? 0, 'design_fee');
+        if (unitPrice === null || designFee === null) throw new AppError('INVALID_REQUEST', 400, 'Enter valid non-negative prices.');
+        const reason = requiredText(body.reason, 'reason', 500);
+        if (reason.length < 3) throw new AppError('INVALID_REQUEST', 400, 'Explain the price change in at least 3 characters.');
+        await deps.gateway.updateProductShopPrice(actor.id, uuid(simplePriceMatch[1], 'variant_id'), unitPrice, designFee, reason);
+        send(response, 200, { status: 'scheduled', effective_from: new Date(Date.now() + 86_400_000).toISOString().slice(0, 10) });
         return;
       }
       if (method === 'PATCH' && path.startsWith('/api/manager/products/')) {
@@ -901,11 +1128,12 @@ export function createApiServer(deps: Dependencies): Server {
         const id = uuid(path.slice('/api/manager/products/'.length), 'product_id');
         const body = await readJson(request);
         const update: Record<string, unknown> = {};
-        for (const field of ['name', 'category', 'base_unit', 'description'] as const) {
+        for (const field of ['name', 'category', 'base_unit', 'description', 'material_description'] as const) {
           if (body[field] === undefined) continue;
           if (field === 'description') {
-            if (typeof body.description !== 'string' || body.description.length > 4000) throw new AppError('INVALID_REQUEST', 400, 'description must be a string no longer than 4000 characters.');
-            update.description = body.description.trim();
+            const maxLength = field === 'description' ? 4000 : 240;
+            if (typeof body[field] !== 'string' || String(body[field]).length > maxLength) throw new AppError('INVALID_REQUEST', 400, `${field} must be a string no longer than ${maxLength} characters.`);
+            update[field] = String(body[field]).trim();
           } else {
             update[field] = requiredText(body[field], field, field === 'name' ? 200 : 80);
           }
@@ -919,6 +1147,14 @@ export function createApiServer(deps: Dependencies): Server {
           update.vertical_key = verticalKey;
         }
         if (body.attributes !== undefined) update.attributes = productAttributes(body.attributes);
+        if (body.allow_customer_design_upload !== undefined) {
+          if (typeof body.allow_customer_design_upload !== 'boolean') throw new AppError('INVALID_REQUEST', 400, 'allow_customer_design_upload must be a boolean.');
+          update.allow_customer_design_upload = body.allow_customer_design_upload;
+        }
+        if (body.image_path !== undefined) {
+          if (typeof body.image_path !== 'string' || body.image_path.length > 512 || (body.image_path !== '' && !body.image_path.startsWith(`products/${id}/`))) throw new AppError('INVALID_REQUEST', 400, 'image_path must reference this product’s storefront storage folder.');
+          update.image_path = body.image_path;
+        }
         if (body.active !== undefined) {
           if (typeof body.active !== 'boolean') throw new AppError('INVALID_REQUEST', 400, 'active must be a boolean.');
           update.active = body.active;
@@ -998,7 +1234,7 @@ export function createApiServer(deps: Dependencies): Server {
           material: typeof body.material === 'string' && body.material.trim() ? requiredText(body.material, 'material', 120) : null,
           finishing: typeof body.finishing === 'string' && body.finishing.trim() ? requiredText(body.finishing, 'finishing', 120) : null,
           unit_price: optionalPrice(body.unit_price, 'unit_price'), fixed_fee: optionalPrice(body.fixed_fee, 'fixed_fee'),
-          setup_fee: optionalPrice(body.setup_fee, 'setup_fee'), design_fee: optionalPrice(body.design_fee, 'design_fee', '50.00'),
+          setup_fee: optionalPrice(body.setup_fee, 'setup_fee'), design_fee: optionalPrice(body.design_fee, 'design_fee'),
           installation_fee: optionalPrice(body.installation_fee, 'installation_fee'), delivery_fee: optionalPrice(body.delivery_fee, 'delivery_fee'),
           tax_rate: taxRate, active_from: activeFrom
         }, reason);
@@ -1022,8 +1258,8 @@ export function createApiServer(deps: Dependencies): Server {
       if (method === 'POST' && path === '/api/ai/chat') {
         requireRole(actor, ['manager', 'admin']);
         const body = await readJson(request);
-        if (!Array.isArray(body.messages) || body.messages.length < 1 || body.messages.length > 16) {
-          throw new AppError('INVALID_REQUEST', 400, 'messages must contain between 1 and 16 user/assistant messages.');
+        if (!Array.isArray(body.messages) || body.messages.length < 1 || body.messages.length > 8) {
+          throw new AppError('INVALID_REQUEST', 400, 'messages must contain between 1 and 8 user/assistant messages.');
         }
         const messages: HermesChatMessage[] = body.messages.map((message: unknown) => {
           if (!message || typeof message !== 'object' || Array.isArray(message)) throw new AppError('INVALID_REQUEST', 400, 'Each message must be an object.');
@@ -1032,7 +1268,7 @@ export function createApiServer(deps: Dependencies): Server {
           return { role: row.role, content: requiredText(row.content, 'message content', 4000) };
         });
         if (messages.at(-1)?.role !== 'user') throw new AppError('INVALID_REQUEST', 400, 'The last message must be from the user.');
-        if (messages.reduce((total, message) => total + message.content.length, 0) > 16000) throw new AppError('PAYLOAD_TOO_LARGE', 413, 'Combined message content exceeds 16,000 characters.');
+        if (messages.reduce((total, message) => total + message.content.length, 0) > 10000) throw new AppError('PAYLOAD_TOO_LARGE', 413, 'Combined message content exceeds 10,000 characters.');
         const question = messages.at(-1)!.content;
         const normalizedQuestion = question.toLocaleLowerCase('en');
         const arabic = /[\u0600-\u06ff]/.test(question);
@@ -1362,6 +1598,289 @@ export function createApiServer(deps: Dependencies): Server {
         send(response, 200, { assets: await deps.gateway.listMarketingAssets() });
         return;
       }
+      if (method === 'GET' && path === '/api/manager/marketing/campaigns') {
+        requireRole(actor, ['manager', 'admin']);
+        if (!deps.gateway.listMarketingCampaigns) throw new AppError('MARKETING_UNAVAILABLE', 503, 'Campaign management is not available on this server.');
+        send(response, 200, { campaigns: await deps.gateway.listMarketingCampaigns() });
+        return;
+      }
+      if (method === 'POST' && path === '/api/manager/marketing/campaigns/generate') {
+        requireRole(actor, ['manager', 'admin']);
+        aiRateLimiter.check(actor.id, 'marketing_campaign', 3);
+        if (!deps.hermes || !deps.gateway.createMarketingCampaignWithPosts) throw new AppError('MARKETING_UNAVAILABLE', 503, 'Campaign generation requires the configured Hermes service and current database migration.');
+        const body = await readJson(request);
+        const name = requiredText(body.name, 'name', 160);
+        const month = requiredText(body.month, 'month', 7);
+        if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new AppError('INVALID_REQUEST', 400, 'month must use YYYY-MM format.');
+        const cairoDateParts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit' }).formatToParts(new Date());
+        const currentCairoMonth = `${cairoDateParts.find((part) => part.type === 'year')?.value}-${cairoDateParts.find((part) => part.type === 'month')?.value}`;
+        if (month < currentCairoMonth) throw new AppError('INVALID_REQUEST', 400, 'Choose the current Cairo month or a future month so every post can be scheduled.');
+        const objective = requiredText(body.objective, 'objective', 1000);
+        const audience = requiredText(body.audience, 'audience', 500);
+        const tone = requiredText(body.tone, 'tone', 300);
+        const language = body.language === 'ar' ? 'ar' : body.language === 'en' ? 'en' : null;
+        if (!language) throw new AppError('INVALID_REQUEST', 400, 'language must be en or ar.');
+        const requested = Number(body.post_count);
+        if (!Number.isInteger(requested) || requested < 1 || requested > 20) throw new AppError('INVALID_REQUEST', 400, 'post_count must be a whole number from 1 to 20.');
+        const validPlatforms = ['instagram','facebook','linkedin','x','general'];
+        if (!Array.isArray(body.platforms) || body.platforms.length < 1 || body.platforms.length > 5 || body.platforms.some((item) => typeof item !== 'string' || !validPlatforms.includes(item))) throw new AppError('INVALID_REQUEST', 400, 'Choose one or more supported platforms.');
+        const platforms = [...new Set(body.platforms as string[])];
+        const validFrequencies = ['daily','weekly','monthly','custom'];
+        const frequency = typeof body.frequency === 'string' && validFrequencies.includes(body.frequency) ? body.frequency : null;
+        if (!frequency) throw new AppError('INVALID_REQUEST', 400, 'frequency must be daily, weekly, monthly, or custom.');
+        const times = body.preferred_times;
+        if (!Array.isArray(times) || times.length < 1 || times.length > 5 || times.some((item) => typeof item !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(item))) throw new AppError('INVALID_REQUEST', 400, 'preferred_times must contain one to five valid HH:mm times.');
+        if (!Array.isArray(body.product_ids) || body.product_ids.length > 20) throw new AppError('INVALID_REQUEST', 400, 'product_ids must contain up to 20 catalog products.');
+        const productIds = [...new Set(body.product_ids.map((id, index) => uuid(id, `product_ids[${index}]`)))];
+        const catalog = (await deps.gateway.listProducts('', true)).filter((value) => value && typeof value === 'object') as Array<Record<string, unknown>>;
+        const activeProducts = catalog.filter((product) => product.active !== false && typeof product.id === 'string');
+        if (productIds.some((id) => !activeProducts.some((product) => product.id === id))) throw new AppError('INVALID_PRODUCT', 422, 'Selected campaign products must exist and be active.');
+        const products = (productIds.length ? activeProducts.filter((product) => productIds.includes(String(product.id))) : activeProducts.slice(0, 20)).map((product) => ({ id: product.id, name: product.name, category: product.category, description: product.description }));
+        const [year, monthNumber] = month.split('-').map(Number);
+        const daysInMonth = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+        const schedule = Array.from({ length: requested }, (_, index) => {
+          let day: number;
+          if (frequency === 'daily') day = Math.min(index + 1, daysInMonth);
+          else if (frequency === 'weekly' && requested <= 4) day = Math.min(1 + index * 7, daysInMonth);
+          else day = Math.max(1, Math.floor(((index + 1) * daysInMonth) / (requested + 1)));
+          const [hour, minute] = times[index % times.length].split(':').map(Number);
+          // Interpret manager-entered times in the Cairo timezone, including seasonal UTC offset.
+          let timestamp = Date.UTC(year, monthNumber - 1, day, hour, minute);
+          const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(timestamp));
+          const part = (type: string) => Number(parts.find((entry) => entry.type === type)?.value ?? 0);
+          const observed = Date.UTC(part('year'), part('month') - 1, part('day'), part('hour'), part('minute'));
+          timestamp += Date.UTC(year, monthNumber - 1, day, hour, minute) - observed;
+          return { scheduled_at: new Date(timestamp).toISOString(), platform: platforms[index % platforms.length], product_id: products.length ? String(products[index % products.length].id) : null, slot: index + 1 };
+        });
+        const startedAt = Date.now();
+        let completion: Awaited<ReturnType<HermesChatClient['complete']>>;
+        try {
+          completion = await deps.hermes.complete([
+            { role: 'system', content: `Create exactly ${requested} distinct social-media post drafts in ${language === 'ar' ? 'Egyptian Arabic' : 'English'}. Use only the supplied product facts and do not invent prices, discounts, stock, guarantees, or customer stories. Respect the objective, audience, tone, platform, and product assigned to each slot. Every post must have caption and 3 to 5 relevant hashtags. Return only a JSON array with exactly ${requested} objects: {"caption":"...","hashtags":["#..."]}. Draft only; do not say anything was published.` },
+            { role: 'user', content: JSON.stringify({ objective, audience, tone, products, slots: schedule }) }
+          ]);
+        } catch (error) {
+          try { await deps.gateway.recordAiRun({ feature: 'marketing_campaign_generation', model: null, inputTokens: 0, outputTokens: 0, latencyMs: Date.now() - startedAt, success: false }); } catch { /* retain provider error */ }
+          throw error;
+        }
+        const raw = requiredText(completion.content, 'generated campaign', 30000).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+        let generated: unknown;
+        try { generated = JSON.parse(raw); } catch { throw new AppError('AI_INVALID_RESPONSE', 502, 'Hermes returned an invalid campaign response. No campaign was saved.'); }
+        if (!Array.isArray(generated) || generated.length !== requested) throw new AppError('AI_INVALID_RESPONSE', 502, 'Hermes did not return the requested number of posts. No campaign was saved.');
+        const posts = generated.map((value, index) => {
+          if (!value || typeof value !== 'object' || Array.isArray(value)) throw new AppError('AI_INVALID_RESPONSE', 502, `Hermes returned an invalid post at position ${index + 1}.`);
+          const row = value as Record<string, unknown>;
+          const caption = requiredText(row.caption, `posts[${index}].caption`, 3000);
+          const tags = Array.isArray(row.hashtags) ? row.hashtags.filter((tag): tag is string => typeof tag === 'string').slice(0, 8).map((tag) => tag.startsWith('#') ? tag : `#${tag.replace(/^#+/, '')}`) : [];
+          return { caption: `${caption}${tags.length ? `\n\n${tags.join(' ')}` : ''}`, theme: 'campaign', ...schedule[index] };
+        });
+        const result = await deps.gateway.createMarketingCampaignWithPosts({ campaign: { name, month, objective, target_audience: audience, language, tone, posting_frequency: frequency, preferred_times: times, platforms, product_ids: productIds, requested_posts: requested }, posts, createdBy: actor.id });
+        try { await deps.gateway.recordAiRun({ feature: 'marketing_campaign_generation', model: completion.model, inputTokens: completion.usage?.prompt_tokens ?? 0, outputTokens: completion.usage?.completion_tokens ?? 0, latencyMs: Date.now() - startedAt, success: true }); } catch { /* campaign is already persisted */ }
+        if (deps.gateway.recordAuditLog) try { await deps.gateway.recordAuditLog({ userId: actor.id, action: 'marketing.campaign.generated', entityType: 'marketing_campaign', entityId: result.campaignId, metadata: { requested_posts: requested, created_posts: result.assetIds.length, month, platforms } }); } catch { /* keep persisted campaign */ }
+        send(response, 201, { campaign_id: result.campaignId, asset_ids: result.assetIds, requested_posts: requested, generated_posts: result.assetIds.length, image_status: 'not_generated', campaign_status: 'draft', publishing_available: false });
+        return;
+      }
+      const campaignMatch = method === 'PATCH' ? /^\/api\/manager\/marketing\/campaigns\/([0-9a-f-]{36})$/.exec(path) : null;
+      if (campaignMatch) {
+        requireRole(actor, ['manager', 'admin']);
+        if (!deps.gateway.updateMarketingCampaign) throw new AppError('MARKETING_UNAVAILABLE', 503, 'Campaign editing is not available on this server.');
+        const body = await readJson(request);
+        const id = uuid(campaignMatch[1], 'campaign_id');
+        const update: { status?: 'draft' | 'active' | 'paused' | 'completed'; name?: string; objective?: string; audience?: string; tone?: string } = {};
+        if (body.status !== undefined) {
+          if (!['draft','active','paused','completed'].includes(String(body.status))) throw new AppError('INVALID_REQUEST', 400, 'Unsupported campaign status.');
+          update.status = body.status as 'draft' | 'active' | 'paused' | 'completed';
+        }
+        if (body.name !== undefined) update.name = requiredText(body.name, 'name', 160);
+        if (body.objective !== undefined) update.objective = requiredText(body.objective, 'objective', 1000);
+        if (body.audience !== undefined) update.audience = requiredText(body.audience, 'audience', 500);
+        if (body.tone !== undefined) update.tone = requiredText(body.tone, 'tone', 300);
+        if (!Object.keys(update).length) throw new AppError('INVALID_REQUEST', 400, 'Provide campaign fields to update.');
+        if (!await deps.gateway.updateMarketingCampaign(id, update)) throw new AppError('NOT_FOUND', 404, 'Marketing campaign not found.');
+        send(response, 200, { campaign_id: id, status: update.status ?? 'updated' });
+        return;
+      }
+      const campaignPostMatch = method === 'POST' ? /^\/api\/manager\/marketing\/campaigns\/([0-9a-f-]{36})\/posts$/.exec(path) : null;
+      if (campaignPostMatch) {
+        requireRole(actor, ['manager', 'admin']);
+        const campaignId = uuid(campaignPostMatch[1], 'campaign_id');
+        if (!deps.gateway.listMarketingCampaigns) throw new AppError('MARKETING_UNAVAILABLE', 503, 'Campaign management is not available on this server.');
+        const campaign = (await deps.gateway.listMarketingCampaigns()).find((value) => value && typeof value === 'object' && (value as Record<string, unknown>).id === campaignId) as Record<string, unknown> | undefined;
+        if (!campaign) throw new AppError('NOT_FOUND', 404, 'Marketing campaign not found.');
+        const platform = Array.isArray(campaign.platforms) && typeof campaign.platforms[0] === 'string' ? String(campaign.platforms[0]) : 'general';
+        const assetId = await deps.gateway.createMarketingAsset({ orderId: null, campaignId, productId: null, campaignBrief: String(campaign.objective ?? ''), campaignType: 'campaign', createdBy: actor.id, designUrl: null, imageStatus: 'not_generated', platform, caption: '', scheduledAt: null });
+        if (deps.gateway.recordAuditLog) try { await deps.gateway.recordAuditLog({ userId: actor.id, action: 'marketing.post.added', entityType: 'marketing_asset', entityId: assetId, metadata: { campaign_id: campaignId } }); } catch { /* draft persists */ }
+        send(response, 201, { asset_id: assetId, status: 'pending_approval' });
+        return;
+      }
+      if (method === 'DELETE' && path === '/api/manager/marketing/assets/drafts') {
+        requireRole(actor, ['manager', 'admin']);
+        if (!deps.gateway.deletePendingMarketingDrafts) throw new AppError('MARKETING_UNAVAILABLE', 503, 'Campaign draft deletion is not available on this server.');
+        const count = await deps.gateway.deletePendingMarketingDrafts(actor.id);
+        if (deps.gateway.recordAuditLog) {
+          try { await deps.gateway.recordAuditLog({ userId: actor.id, action: 'marketing.pending_drafts.deleted', entityType: 'marketing_asset', entityId: null, metadata: { count } }); }
+          catch (error) { console.error(JSON.stringify({ level: 'error', event: 'marketing.drafts_delete_audit_failed', request_id: requestId, error_code: error instanceof AppError ? error.code : 'AUDIT_WRITE_FAILED' })); }
+        }
+        send(response, 200, { deleted: count });
+        return;
+      }
+      const marketingDraftMatch = method === 'PATCH' ? /^\/api\/manager\/marketing\/assets\/([0-9a-f-]{36})$/.exec(path) : null;
+      if (marketingDraftMatch) {
+        requireRole(actor, ['manager', 'admin']);
+        if (!deps.gateway.updatePendingMarketingDraft) throw new AppError('MARKETING_UNAVAILABLE', 503, 'Campaign editing is not available on this server.');
+        const id = uuid(marketingDraftMatch[1], 'marketing_asset_id');
+        const body = await readJson(request);
+        const existing = (await deps.gateway.listMarketingAssets()).find((value) => value && typeof value === 'object' && (value as Record<string, unknown>).id === id) as Record<string, unknown> | undefined;
+        if (!existing || existing.order_id !== null || existing.status !== 'pending_approval') throw new AppError('MARKETING_DRAFT_NOT_EDITABLE', 409, 'Only an unpublished pending draft can be edited.');
+        const caption = body.caption === undefined ? requiredText(existing.caption, 'caption', 4000) : requiredText(body.caption, 'caption', 4000);
+        if (body.scheduled_at !== null && body.scheduled_at !== undefined && (typeof body.scheduled_at !== 'string' || !Number.isFinite(Date.parse(body.scheduled_at)))) {
+          throw new AppError('INVALID_REQUEST', 400, 'scheduled_at must be an ISO date/time or null.');
+        }
+        const scheduledAt = typeof body.scheduled_at === 'string' ? new Date(body.scheduled_at).toISOString() : null;
+        const platform = body.platform === undefined ? undefined : requiredText(body.platform, 'platform', 40).toLowerCase();
+        if (platform && !['instagram','facebook','linkedin','x','general'].includes(platform)) throw new AppError('INVALID_REQUEST', 400, 'Unsupported publishing platform.');
+        const productId = body.product_id === undefined ? undefined : body.product_id === null || body.product_id === '' ? null : uuid(body.product_id, 'product_id');
+        if (productId) {
+          const product = await deps.gateway.getProduct(productId);
+          if (!product || product.active === false) throw new AppError('INVALID_PRODUCT', 422, 'Campaign product must be active.');
+        }
+        if (!await deps.gateway.updatePendingMarketingDraft(id, caption, scheduledAt, { productId: productId === undefined ? (typeof existing.product_id === 'string' ? existing.product_id : null) : productId, platform: platform ?? String(existing.platform ?? 'general') })) throw new AppError('MARKETING_DRAFT_NOT_EDITABLE', 409, 'Only an unpublished pending or approved post can be changed.');
+        send(response, 200, { asset_id: id, status: 'updated' });
+        return;
+      }
+
+      const marketingImageMatch = method === 'POST' ? /^\/api\/manager\/marketing\/assets\/([0-9a-f-]{36})\/image$/.exec(path) : null;
+      if (marketingImageMatch) {
+        requireRole(actor, ['manager', 'admin']);
+        if (!deps.marketingImage || !deps.gateway.uploadMarketingImage || !deps.gateway.updateMarketingAssetImage) throw new AppError('IMAGE_GENERATION_UNAVAILABLE', 503, 'Marketing image generation is unavailable on this server.');
+        const id = uuid(marketingImageMatch[1], 'marketing_asset_id');
+        const asset = (await deps.gateway.listMarketingAssets()).find((value) => value && typeof value === 'object' && (value as Record<string, unknown>).id === id) as Record<string, unknown> | undefined;
+        if (!asset || asset.order_id !== null || asset.status !== 'pending_approval') throw new AppError('MARKETING_DRAFT_NOT_EDITABLE', 409, 'Only a pending marketing draft can receive an image.');
+        const product = typeof asset.product_id === 'string' ? await deps.gateway.getProduct(asset.product_id) : null;
+        const prompt = `Create one premium, photorealistic social campaign image for INKORA, a real print shop in Mansoura, Egypt. Product: ${product ? `${String(product.name)} (${String(product.category)}) ${String(product.description ?? '')}` : 'print shop brand awareness'}. Campaign context: ${String(asset.campaign_brief ?? '').slice(0, 700)}. Caption context: ${String(asset.caption ?? '').slice(0, 700)}. Platform: ${String(asset.platform ?? 'general')}. Show product-specific realistic print photography or a clean print-inspired scene. Do not render readable text, price, discounts, invented logos, watermark, or customer material. Square image.`;
+        try {
+          const generated = await deps.marketingImage.generate(prompt);
+          if (!['image/png','image/jpeg','image/webp'].includes(generated.mimeType) || generated.data.length > 12_000_000) throw new AppError('INVALID_GENERATED_IMAGE', 502, 'The image provider returned unsupported artwork.');
+          const imagePath = await deps.gateway.uploadMarketingImage({ id: randomUUID(), mimeType: generated.mimeType, data: generated.data });
+          await deps.gateway.updateMarketingAssetImage(id, imagePath, 'generated');
+          try { await deps.gateway.recordAiRun({ feature: 'marketing_image', model: generated.model, inputTokens: 0, outputTokens: 0, estimatedCostUsd: generated.estimatedCostUsd, latencyMs: 0, success: true }); } catch { /* preserve the saved artwork */ }
+          send(response, 201, { asset_id: id, image_status: 'generated', design_url: imagePath, model: generated.model });
+        } catch (error) {
+          const code = error instanceof AppError ? error.code : 'IMAGE_GENERATION_FAILED';
+          try { await deps.gateway.updateMarketingAssetImage(id, null, 'failed', code); } catch { /* return original generation error */ }
+          try { await deps.gateway.recordAiRun({ feature: 'marketing_image', model: process.env.MARKETING_IMAGE_PROVIDER ?? 'configured image provider', inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0, latencyMs: 0, success: false }); } catch { /* preserve original generation error */ }
+          throw error;
+        }
+        return;
+      }
+
+      const marketingDuplicateMatch = method === 'POST' ? /^\/api\/manager\/marketing\/assets\/([0-9a-f-]{36})\/duplicate$/.exec(path) : null;
+      if (marketingDuplicateMatch) {
+        requireRole(actor, ['manager', 'admin']);
+        const originalId = uuid(marketingDuplicateMatch[1], 'marketing_asset_id');
+        const original = (await deps.gateway.listMarketingAssets()).find((value) => value && typeof value === 'object' && (value as Record<string, unknown>).id === originalId) as Record<string, unknown> | undefined;
+        if (!original || original.order_id !== null) throw new AppError('NOT_FOUND', 404, 'Independent marketing draft not found.');
+        const newId = await deps.gateway.createMarketingAsset({ orderId: null, campaignId: typeof original.campaign_id === 'string' ? original.campaign_id : null, productId: typeof original.product_id === 'string' ? original.product_id : null, campaignBrief: String(original.campaign_brief ?? ''), campaignType: String(original.campaign_type ?? 'campaign'), createdBy: actor.id, designUrl: typeof original.design_url === 'string' ? original.design_url : null, imageStatus: original.design_url ? 'generated' : 'not_generated', platform: String(original.platform ?? 'general'), caption: String(original.caption ?? ''), scheduledAt: null });
+        if (deps.gateway.recordAuditLog) try { await deps.gateway.recordAuditLog({ userId: actor.id, action: 'marketing.post.duplicated', entityType: 'marketing_asset', entityId: newId, metadata: { source_asset_id: originalId } }); } catch { /* duplicate persists */ }
+        send(response, 201, { asset_id: newId, status: 'pending_approval' });
+        return;
+      }
+
+      const marketingDeleteMatch = method === 'DELETE' ? /^\/api\/manager\/marketing\/assets\/([0-9a-f-]{36})$/.exec(path) : null;
+      if (marketingDeleteMatch) {
+        requireRole(actor, ['manager', 'admin']);
+        if (!deps.gateway.deletePendingMarketingDraft) throw new AppError('MARKETING_UNAVAILABLE', 503, 'Individual campaign post deletion is not available on this server.');
+        const id = uuid(marketingDeleteMatch[1], 'marketing_asset_id');
+        if (!await deps.gateway.deletePendingMarketingDraft(id)) throw new AppError('MARKETING_DRAFT_NOT_EDITABLE', 409, 'Only an unpublished draft can be deleted.');
+        send(response, 200, { asset_id: id, status: 'deleted' });
+        return;
+      }
+
+      if (path === '/api/manager/product-images/allowance' && method === 'GET') {
+        requireRole(actor, ['manager', 'admin']);
+        if (!deps.gateway.getProductImageAllowance) throw new AppError('IMAGE_ALLOWANCE_UNAVAILABLE', 503, 'Product image generation allowance is not configured.');
+        send(response, 200, await deps.gateway.getProductImageAllowance());
+        return;
+      }
+      if (path === '/api/manager/product-images/allowance' && method === 'PUT') {
+        requireRole(actor, ['manager', 'admin']);
+        if (!deps.gateway.setProductImageAllowance || !deps.gateway.getProductImageAllowance) throw new AppError('IMAGE_ALLOWANCE_UNAVAILABLE', 503, 'Product image generation allowance is not configured.');
+        const body = await readJson(request);
+        const included = Number(body.included);
+        if (!Number.isInteger(included) || included < 0 || included > 100) throw new AppError('INVALID_REQUEST', 400, 'included must be a whole number from 0 to 100.');
+        const current = await deps.gateway.getProductImageAllowance();
+        if (included < current.used) throw new AppError('ALLOWANCE_BELOW_USAGE', 409, 'The included allowance cannot be set below already reserved or completed generations.');
+        const reason = requiredText(body.reason, 'reason', 500);
+        if (reason.length < 3) throw new AppError('INVALID_REQUEST', 400, 'reason must contain at least three characters.');
+        await deps.gateway.setProductImageAllowance(actor.id, included);
+        if (deps.gateway.recordAuditLog) {
+          try { await deps.gateway.recordAuditLog({ userId: actor.id, action: 'product_image_generation.allowance_updated', entityType: 'shop_settings', entityId: null, metadata: { old_included: current.included, new_included: included, reason } }); }
+          catch (error) { console.error(JSON.stringify({ level: 'error', event: 'product_image_generation.allowance_audit_failed', request_id: requestId, error_code: error instanceof AppError ? error.code : 'AUDIT_WRITE_FAILED' })); }
+        }
+        send(response, 200, { allowance: await deps.gateway.getProductImageAllowance() });
+        return;
+      }
+      const productImageMatch = /^\/api\/manager\/products\/([0-9a-f-]{36})\/images(?:\/(generate|select))?$/.exec(path);
+      if (productImageMatch) {
+        requireRole(actor, ['manager', 'admin']);
+        const productId = uuid(productImageMatch[1], 'product_id');
+        const action = productImageMatch[2];
+        if (method === 'GET' && !action) {
+          if (!deps.gateway.listProductImageGenerations) throw new AppError('PRODUCT_IMAGES_UNAVAILABLE', 503, 'Product image gallery is not configured.');
+          send(response, 200, { images: await deps.gateway.listProductImageGenerations(productId) });
+          return;
+        }
+        if (method === 'POST' && action === 'select') {
+          if (!deps.gateway.selectProductImage) throw new AppError('PRODUCT_IMAGES_UNAVAILABLE', 503, 'Product image selection is not configured.');
+          const body = await readJson(request);
+          await deps.gateway.selectProductImage(actor.id, productId, uuid(body.generation_id, 'generation_id'));
+          send(response, 200, { status: 'selected' });
+          return;
+        }
+        if (method === 'POST' && action === 'generate') {
+          if (!deps.marketingImage || !deps.gateway.uploadProductImage || !deps.gateway.reserveProductImageGeneration || !deps.gateway.finishProductImageGeneration || !deps.gateway.getProductImageAllowance) throw new AppError('PRODUCT_IMAGE_GENERATION_UNAVAILABLE', 503, 'AI product image generation is not configured.');
+          const product = await deps.gateway.getProduct(productId);
+          if (!product) throw new AppError('NOT_FOUND', 404, 'Product not found.');
+          const allowance = await deps.gateway.getProductImageAllowance();
+          if (allowance.remaining < 1) throw new AppError('IMAGE_ALLOWANCE_EXHAUSTED', 402, 'Included product image generations are used. Paid extra generations are unavailable until billing is configured.');
+          const id = randomUUID();
+          await deps.gateway.reserveProductImageGeneration({ id, productId, requestedBy: actor.id });
+          let model: string | null = null;
+          try {
+            const prompt = `Create one photorealistic additional catalog image for the supplied real product. Product name: ${requiredText(product.name, 'product.name', 200)}. Category: ${requiredText(product.category, 'product.category', 80)}. Description: ${typeof product.description === 'string' ? product.description.slice(0, 500) : 'No description supplied'}. Material: ${typeof product.material_description === 'string' ? product.material_description.slice(0, 240) : 'unspecified'}. Show a realistic product-display or lifestyle angle consistent with the actual product. Do not alter the product type, invent branding, render readable text, show a watermark, or imply the image is the shop's original photography.`;
+            const generated = await deps.marketingImage.generate(prompt);
+            model = generated.model;
+            if (!['image/png', 'image/jpeg', 'image/webp'].includes(generated.mimeType) || generated.data.length > 12_000_000) throw new AppError('INVALID_GENERATED_IMAGE', 502, 'The image provider returned unsupported artwork.');
+            const imagePath = await deps.gateway.uploadProductImage({ id, productId, mimeType: generated.mimeType, data: generated.data });
+            await deps.gateway.finishProductImageGeneration({ id, status: 'completed', imagePath, model });
+            try { await deps.gateway.recordAiRun({ feature: 'product_image_generation', model, inputTokens: 0, outputTokens: 0, estimatedCostUsd: generated.estimatedCostUsd, latencyMs: 0, success: true }); } catch { /* Do not discard the generated image if usage logging fails. */ }
+            send(response, 201, { generation_id: id, image_path: imagePath, model, allowance: await deps.gateway.getProductImageAllowance() });
+          } catch (error) {
+            try { await deps.gateway.finishProductImageGeneration({ id, status: 'failed', model }); } catch { /* Preserve the provider/storage failure. */ }
+            try { await deps.gateway.recordAiRun({ feature: 'product_image_generation', model, inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0, latencyMs: 0, success: false }); } catch { /* Preserve the provider/storage failure. */ }
+            throw error;
+          }
+          return;
+        }
+      }
+      if (path === '/api/manager/marketing/plan-settings' && method === 'GET') {
+        requireRole(actor, ['manager', 'admin']);
+        if (!deps.gateway.getMarketingPlanSettings) throw new AppError('MARKETING_SETTINGS_UNAVAILABLE', 503, 'Monthly marketing settings are not available on this server.');
+        send(response, 200, { settings: await deps.gateway.getMarketingPlanSettings() ?? defaultMarketingPlanSettings });
+        return;
+      }
+      if (path === '/api/manager/marketing/plan-settings' && method === 'PUT') {
+        requireRole(actor, ['manager', 'admin']);
+        if (!deps.gateway.saveMarketingPlanSettings) throw new AppError('MARKETING_SETTINGS_UNAVAILABLE', 503, 'Monthly marketing settings are not available on this server.');
+        const body = await readJson(request);
+        const settings = marketingPlanSettings(body.settings);
+        const catalog = await deps.gateway.listProducts('', true);
+        const activeIds = new Set(catalog.filter((product) => product && typeof product === 'object' && (product as Record<string, unknown>).active !== false).map((product) => String((product as Record<string, unknown>).id)));
+        if (settings.product_ids.some((id) => !activeIds.has(id))) throw new AppError('INVALID_PRODUCT', 422, 'Every selected marketing product must exist and be active.');
+        await deps.gateway.saveMarketingPlanSettings(actor.id, settings);
+        send(response, 200, { settings, status: 'saved' });
+        return;
+      }
       if (method === 'POST' && path === '/api/marketing/draft') {
         requireRole(actor, ['manager', 'marketing', 'admin']);
         aiRateLimiter.check(actor.id, 'marketing_draft', 6);
@@ -1376,6 +1895,10 @@ export function createApiServer(deps: Dependencies): Server {
         if (productId && !product) throw new AppError('NOT_FOUND', 404, 'Active catalog product not found.');
         const platform = requiredText(body.platform, 'platform', 40).toLowerCase();
         if (!['instagram', 'facebook', 'linkedin', 'x', 'general'].includes(platform)) throw new AppError('INVALID_REQUEST', 400, 'Choose instagram, facebook, linkedin, x, or general.');
+        if (body.scheduled_at !== null && body.scheduled_at !== undefined && (typeof body.scheduled_at !== 'string' || !Number.isFinite(Date.parse(body.scheduled_at)))) {
+          throw new AppError('INVALID_REQUEST', 400, 'scheduled_at must be an ISO date/time or null.');
+        }
+        const scheduledAt = typeof body.scheduled_at === 'string' ? new Date(body.scheduled_at).toISOString() : null;
         const facts = product ? { name: product.name, category: product.category, description: product.description } : null;
         const generateImage = body.generate_image === true;
         if (generateImage && (!deps.marketingImage || !deps.gateway.uploadMarketingImage)) throw new AppError('IMAGE_GENERATION_UNAVAILABLE', 503, 'Marketing image generation is disabled or private image storage is unavailable.');
@@ -1406,7 +1929,7 @@ export function createApiServer(deps: Dependencies): Server {
             throw error;
           }
         }
-        const id = await deps.gateway.createMarketingAsset({ orderId: null, productId, campaignBrief, campaignType, createdBy: actor.id, designUrl, platform, caption });
+        const id = await deps.gateway.createMarketingAsset({ orderId: null, productId, campaignBrief, campaignType, createdBy: actor.id, designUrl, platform, caption, scheduledAt });
         try { await deps.gateway.recordAiRun({ feature: 'marketing_draft', model: completion.model, inputTokens: completion.usage?.prompt_tokens ?? 0, outputTokens: completion.usage?.completion_tokens ?? 0, latencyMs: Date.now() - startedAt, success: true }); } catch (error) { console.error('Could not record marketing AI run.', error); }
         send(response, 201, { asset_id: id, status: 'pending_approval', caption, design_url: designUrl, model: completion.model });
         return;
@@ -1440,22 +1963,12 @@ export function createApiServer(deps: Dependencies): Server {
         const files = body.reference_files ?? [];
         if (!Array.isArray(files) || files.length > 10 || files.some((file) => typeof file !== 'string' || file.length > 2048)) throw new AppError('INVALID_REQUEST', 400, 'reference_files must contain up to 10 file URLs.');
         if ((files as string[]).some((file) => !file.startsWith(`${actor.id}/`))) throw new AppError('FORBIDDEN', 403, 'Reference files must be uploaded to your private design folder.');
-        let designFee = 0;
-        if (body.shop_design === true) {
-          if (role !== 'customer' || !orderId) throw new AppError('INVALID_ORDER', 422, 'Shop design must be requested on the signed-in customer order.');
-          const order = await deps.gateway.getOrder(orderId);
-          if (!order || order.customer_id !== customerId || !order.quote_id) throw new AppError('INVALID_ORDER', 422, 'The order does not belong to this customer.');
-          const quote = await deps.gateway.getQuote(String(order.quote_id));
-          if (!quote || quote.customer_id !== customerId) throw new AppError('INVALID_ORDER', 422, 'The design fee quote does not belong to this customer.');
-          const quoteItems = Array.isArray(quote?.quote_items) ? quote.quote_items as Array<Record<string, unknown>> : [];
-          const approvedDesignFeeIncluded = quoteItems.some((item) => {
-            if (item.design_required !== true || !item.options || typeof item.options !== 'object') return false;
-            return (item.options as Record<string, unknown>).design_fee === '50.00';
-          });
-          if (!approvedDesignFeeIncluded) throw new AppError('DESIGN_FEE_NOT_INCLUDED', 422, 'This order does not include the manager-approved EGP 50 design service. Recalculate the quote with shop design selected.');
-          designFee = 50;
+        if (body.shop_design === true) throw new AppError('CUSTOM_DESIGN_REMOVED', 410, 'The paid customer design service is no longer offered. Customers may optionally upload their own artwork when the product allows it.');
+        if (role === 'customer') {
+          if (!orderId || (files as string[]).length === 0) throw new AppError('DESIGN_UPLOAD_NOT_ALLOWED', 422, 'Customer design requests require an order and an optional artwork file for an enabled product.');
+          if (!deps.gateway.customerDesignUploadAllowed || !await deps.gateway.customerDesignUploadAllowed(orderId, customerId)) throw new AppError('DESIGN_UPLOAD_NOT_ALLOWED', 422, 'Customer artwork upload is not enabled for any item in this order.');
         }
-        const id = await deps.gateway.createDesignRequest({ customerId, orderId, brief: requiredText(body.brief, 'brief'), referenceFiles: files as string[], customerNotes: typeof body.customer_notes === 'string' ? body.customer_notes.slice(0, 2000) : null, designFee });
+        const id = await deps.gateway.createDesignRequest({ customerId, orderId, brief: requiredText(body.brief, 'brief'), referenceFiles: files as string[], customerNotes: typeof body.customer_notes === 'string' ? body.customer_notes.slice(0, 2000) : null, designFee: 0 });
         send(response, 201, { design_request_id: id, status: 'requested' });
         return;
       }

@@ -40,7 +40,9 @@ export async function drainAutomationOutbox(options: DrainOptions): Promise<numb
           event_id: event.id,
           event_type: event.event_type
         }),
-        signal: AbortSignal.timeout(5_000)
+        // Render Free may take close to a minute to wake after idling. A
+        // five-second deadline turns a healthy cold start into a dead event.
+        signal: AbortSignal.timeout(60_000)
       });
       if (!response.ok) {
         await options.gateway.retryIntegrationEvent(event.id, retryDelay(event.attempt_count), `n8n returned HTTP ${response.status}`);

@@ -10,7 +10,10 @@ const config: StorefrontConfig = {
   store_name: 'INKORA', tagline: 'Create. Print. Grow.', hero_eyebrow: 'PRINT STUDIO',
   hero_title_en: 'Make an idea real', hero_title_ar: 'حوّل فكرتك إلى واقع',
   hero_description_en: 'Order print from the shop.', hero_description_ar: 'اطلب مطبوعات من المتجر.',
-  announcement_en: '', announcement_ar: '', accent_color: '#6f9fee', featured_product_ids: []
+  announcement_en: '', announcement_ar: '', accent_color: '#6f9fee', featured_product_ids: [], theme: 'midnight',
+  background_color: '#101114', surface_color: '#191b20', text_color: '#f5f5f5', button_color: '#6f9fee',
+  font_family: 'sans', layout: 'wide', hero_image_path: '', logo_path: '', logo_placement: 'left',
+  cta_label_en: 'Explore the store', cta_label_ar: 'اكتشف المتجر', featured_categories: []
 };
 
 test('storefront is public to read, manager-only to edit, and publishing is auditable through gateway transitions', async (context) => {

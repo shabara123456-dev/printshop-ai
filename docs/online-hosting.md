@@ -16,7 +16,7 @@ This is a no-cost demo/staging deployment, not a dependable production host:
 - Render Free services spin down after 15 minutes without inbound traffic and can take about a minute to wake. n8n schedules do not run while n8n is asleep; webhook events may time out during cold start.
 - Render provides 750 free instance-hours per workspace per month across all Free services. Two services running continuously would use that pool in about half a month; once depleted, Free services are suspended until the next month.
 - Free service filesystems are temporary. n8n data is therefore configured for Supabase PostgreSQL and binary data mode `database`; its encryption key is stored as a Render environment secret. Hermes' local session/memory/config files are temporary and its config is regenerated after restart.
-- Free Render web services cannot send SMTP traffic on ports 25, 465, or 587. Existing email workflows need a Gmail API/OAuth or another HTTPS email integration before they can send. Do not activate them while they still use SMTP.
+- Free Render web services cannot send SMTP traffic on ports 25, 465, or 587. The hosted n8n workflows use Gmail OAuth over HTTPS. Do not switch them back to SMTP on this tier.
 - Free services have 512 MB RAM. n8n and especially Hermes may restart or fail under memory pressure. Hermes is restricted to one concurrent run to reduce pressure.
 - Google Gemini API quotas and billing depend on the configured Google account. Keep billing disabled for a strict $0 usage goal and monitor quota.
 
@@ -66,7 +66,7 @@ To generate random values locally in PowerShell without posting them here:
 node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
 ```
 
-Run it separately for each secret. The Blueprint imports the four repository workflows once after n8n's first successful deploy; they remain inactive until credentials are configured.
+Run it separately for each secret. The repository workflow JSON files are inactive templates. The hosted n8n instance has its own four imported, active workflows; changing a local template does not update the hosted copy. If rebuilding n8n, import the templates, assign credentials, test, then activate them.
 
 ### 4. Connect Cloudflare Worker to the hosted services
 
@@ -85,18 +85,16 @@ Never expose these secrets as `VITE_*` variables or browser code. Deploy the Wor
 
 ### 5. Configure and test n8n
 
-1. Create the n8n owner account using its hosted URL.
-2. Create the `INKORA Integration Key` Header Auth credential and assign it to the event webhook and HTTP Request nodes.
-3. Replace each SMTP email node with an HTTPS email integration (Gmail API/OAuth can be used) and create the matching n8n credential. Render Free blocks SMTP, so the existing Gmail SMTP credential will not work there.
-4. Run the event workflow's integration test and verify a real email arrives.
-5. Run the daily, weekly, and monthly workflows manually. Confirm their API steps and email delivery work.
-6. Activate schedules only after successful manual checks. Remember schedules cannot execute while the n8n service is asleep.
-7. In the app, open **Manager → Automations** and confirm the live workflow status is visible.
-8. Open Manager → Hermes AI and test a read-only shop question. Confirm the API responds after Hermes wakes.
+1. The hosted n8n owner account and four workflows have already been configured.
+2. The live workflows use saved Gmail OAuth and `INKORA Event Webhook` Header Auth credentials. Keep both credentials in n8n; never copy their values into workflow files or the frontend.
+3. The event router's harmless integration test has completed successfully. For future changes, test with the manager mailbox, not a customer's address.
+4. In the app, open **Manager → Automations** and refresh to confirm workflow status and recent executions. The Worker reads n8n through server-side secrets.
+5. Schedules cannot execute while the Render Free n8n service is asleep. Render may also suspend Free services after the monthly instance-hour allowance is used.
+6. Open Manager → Hermes AI and test a read-only shop question. Confirm the API responds after Hermes wakes.
 
 ## Important boundary
 
-This configuration only prepares the hosted services; it does not create them or prove they're online. Do not stop the local n8n/Hermes services until the Render URLs, Supabase connection, Worker secrets, and real end-to-end checks all pass. Some features (SMTP emails, schedules during sleep, and sustained Hermes availability) cannot be made dependable on the $0 Render tier.
+The hosted n8n API and four active workflows were verified on 2026-10-10, and the event router completed a successful integration test. This is a free-tier demo/staging setup: cold starts, sleep, monthly instance-hour exhaustion, and Hermes memory limits can interrupt availability. It is not a continuously available production service.
 
 ## Data and recovery
 

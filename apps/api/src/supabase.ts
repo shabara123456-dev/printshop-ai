@@ -1,13 +1,13 @@
 import type { PricingRepository, PriceRule, ProductOptionGroup, Variant } from './pricing.ts';
 import { AppError } from './errors.ts';
-import type { AuthGateway, CommerceVertical, DesignRequestStatus, InventoryCommand, OrderStatus, ProductionStatus, QuoteStatus, Role, StorefrontConfig } from './api.ts';
+import type { AuthGateway, CommerceVertical, DesignRequestStatus, InventoryCommand, MarketingPlanSettings, OrderStatus, ProductionStatus, QuoteStatus, Role, StorefrontConfig } from './api.ts';
 import type { AutomationEvent } from './automation-outbox.ts';
 
 type SupabaseUser = { id: string };
 const SUPABASE_REQUEST_TIMEOUT_MS = 15_000;
 
 const PRODUCT_OPTIONS_SELECT = 'product_option_groups(id,option_key,label_en,label_ar,required,active,display_order,product_option_values(id,value_key,label_en,label_ar,adjustment_type,price_adjustment,active,display_order))';
-const PUBLIC_PRODUCT_SELECT = `id,sku,name,category,description,base_unit,vertical_key,attributes,requires_design,requires_size,demo_only,${PRODUCT_OPTIONS_SELECT},product_variants!inner(id,sku,name,width_cm,height_cm,material,finishing,available_quantity,attributes,public_price,price_type,market_references(quantity,min_price,max_price,currency,source_name,source_url,source_date),price_rules!inner(id,active_from,active_to))`;
+const PUBLIC_PRODUCT_SELECT = `id,sku,name,category,description,base_unit,vertical_key,attributes,requires_design,requires_size,allow_customer_design_upload,material_description,image_path,demo_only,${PRODUCT_OPTIONS_SELECT},product_variants!inner(id,sku,name,width_cm,height_cm,material,finishing,available_quantity,attributes,public_price,price_type,market_references(quantity,min_price,max_price,currency,source_name,source_url,source_date),price_rules!inner(id,active_from,active_to))`;
 
 function shopDate(): string {
   const parts = new Intl.DateTimeFormat('en', {
@@ -105,6 +105,10 @@ export class SupabaseGateway implements PricingRepository, AuthGateway {
     return await this.rpc<boolean>('retry_dead_integration_event', { p_actor_id: actorId, p_event_id: eventId });
   }
 
+  async deleteAutomationEvent(actorId: string, eventId: string): Promise<boolean> {
+    return await this.rpc<boolean>('delete_manager_integration_event', { p_actor_id: actorId, p_event_id: eventId });
+  }
+
   async authenticate(accessToken: string): Promise<SupabaseUser> {
     let response: Response;
     try {
@@ -181,6 +185,9 @@ export class SupabaseGateway implements PricingRepository, AuthGateway {
       if (path === 'rpc/create_order_from_accepted_quote' && upstreamCode === '22023' && upstreamMessage.startsWith('DEMO_ONLY_PRODUCTS:')) {
         throw new AppError('DEMO_ONLY_PRODUCT', 409, 'This sample catalog item is not available for sale. A manager must approve its shop prices first.');
       }
+      if (path === 'rpc/delete_unreferenced_product' && upstreamCode === '23503') {
+        throw new AppError('PRODUCT_HAS_HISTORY', 409, 'This product is linked to an order or quote and cannot be permanently deleted. Hide it from the store instead.');
+      }
       if (path === 'rpc/promote_demo_product' && upstreamCode === '22023') {
         throw new AppError('DEMO_PRODUCT_NOT_READY', 409, upstreamMessage);
       }
@@ -256,7 +263,7 @@ export class SupabaseGateway implements PricingRepository, AuthGateway {
   async listProducts(search = '', includeInactive = false): Promise<unknown[]> {
     const query = new URLSearchParams({
       select: includeInactive
-        ? `id,sku,name,category,description,base_unit,vertical_key,attributes,active,requires_design,requires_size,demo_only,${PRODUCT_OPTIONS_SELECT},product_variants(id,sku,name,width_cm,height_cm,material,finishing,available_quantity,attributes,active,price_rules(id,quantity_min,quantity_max,material,finishing,unit_price,fixed_fee,setup_fee,design_fee,installation_fee,delivery_fee,tax_rate,active_from,active_to))`
+        ? `id,sku,name,category,description,base_unit,vertical_key,attributes,active,requires_design,requires_size,allow_customer_design_upload,material_description,image_path,demo_only,${PRODUCT_OPTIONS_SELECT},product_variants(id,sku,name,width_cm,height_cm,material,finishing,available_quantity,attributes,active,price_rules(id,quantity_min,quantity_max,material,finishing,unit_price,fixed_fee,setup_fee,design_fee,installation_fee,delivery_fee,tax_rate,active_from,active_to))`
         : PUBLIC_PRODUCT_SELECT,
       order: 'name.asc', limit: '500'
     });
@@ -325,6 +332,36 @@ export class SupabaseGateway implements PricingRepository, AuthGateway {
     });
     if (!rows[0]?.id) throw new AppError('DATABASE_ERROR', 502, 'The product could not be saved.');
     return rows[0].id;
+  }
+
+  async quickCreateProduct(actorId: string, input: { product: Record<string, unknown>; variant: Record<string, unknown>; unitPrice: string; designFee: string; showInStore: boolean }): Promise<string> {
+    const result = await this.rpc<{ product_id?: unknown }>('create_quick_catalog_product', {
+      p_actor_id: actorId,
+      p_product: input.product,
+      p_variant: input.variant,
+      p_price: { unit_price: input.unitPrice, design_fee: input.designFee, tax_rate: 0 },
+      p_show_in_store: input.showInStore
+    });
+    if (!result || typeof result.product_id !== 'string') throw new AppError('DATABASE_ERROR', 502, 'The product setup did not return a product ID.');
+    return result.product_id;
+  }
+
+  async configureProductOffer(actorId: string, productId: string, unitPrice: string, availableQuantity: number | null, reason: string): Promise<void> {
+    await this.rpc('configure_product_offer', {
+      p_actor_id: actorId, p_product_id: productId, p_unit_price: unitPrice,
+      p_available_quantity: availableQuantity, p_reason: reason
+    });
+  }
+
+  async deleteUnreferencedProduct(actorId: string, productId: string): Promise<void> {
+    await this.rpc('delete_unreferenced_product', { p_actor_id: actorId, p_product_id: productId });
+  }
+
+  async updateProductShopPrice(actorId: string, variantId: string, unitPrice: string, designFee: string, reason: string): Promise<void> {
+    await this.rpc('update_product_shop_price', {
+      p_actor_id: actorId, p_variant_id: variantId,
+      p_unit_price: unitPrice, p_design_fee: designFee, p_reason: reason
+    });
   }
 
   async updateProduct(id: string, input: Record<string, unknown>): Promise<void> {
@@ -522,6 +559,15 @@ export class SupabaseGateway implements PricingRepository, AuthGateway {
     return rows.length === 1;
   }
 
+  async customerDesignUploadAllowed(orderId: string, customerId: string): Promise<boolean> {
+    const query = new URLSearchParams({
+      select: 'order_items(product_variants(products(allow_customer_design_upload)))',
+      id: `eq.${orderId}`, customer_id: `eq.${customerId}`, limit: '1'
+    });
+    const rows = await this.rest<Array<{ order_items?: Array<{ product_variants?: { products?: { allow_customer_design_upload?: boolean } | null } | null }> }>>(`orders?${query}`);
+    return rows[0]?.order_items?.some((item) => item.product_variants?.products?.allow_customer_design_upload === true) ?? false;
+  }
+
   async createMaterial(input: { sku: string; name: string; category: string; unit: string; reorderPoint: number; reorderQuantity: number }): Promise<string> {
     const rows = await this.rest<Array<{ id: string }>>('materials', {
       method: 'POST', headers: { prefer: 'return=representation' },
@@ -545,10 +591,102 @@ export class SupabaseGateway implements PricingRepository, AuthGateway {
 
   async listMarketingAssets(): Promise<unknown[]> {
     const query = new URLSearchParams({
-      select: 'id,order_id,product_id,campaign_brief,campaign_type,created_by,design_url,caption,platform,status,created_at,products(name)',
+      select: 'id,campaign_id,order_id,product_id,campaign_brief,campaign_type,created_by,design_url,image_status,image_error,caption,platform,status,scheduled_at,created_at,products(name),marketing_posts(id,status,platform,scheduled_at,published_at,external_id)',
       order: 'created_at.desc', limit: '200'
     });
     return await this.rest<unknown[]>(`marketing_assets?${query}`);
+  }
+
+  async listMarketingCampaigns(): Promise<unknown[]> {
+    const query = new URLSearchParams({ select: '*', order: 'month.desc,created_at.desc', limit: '100' });
+    return await this.rest<unknown[]>(`marketing_campaigns?${query}`);
+  }
+
+  async createMarketingCampaign(input: { name: string; month: string; objective: string; audience: string; language: 'en' | 'ar'; tone: string; frequency: string; preferredTimes: string[]; platforms: string[]; productIds: string[]; requestedPosts: number; createdBy: string }): Promise<string> {
+    const rows = await this.rest<Array<{ id: string }>>('marketing_campaigns', {
+      method: 'POST', headers: { prefer: 'return=representation' },
+      body: JSON.stringify({ name: input.name, month: `${input.month}-01`, objective: input.objective, target_audience: input.audience, language: input.language, tone: input.tone, posting_frequency: input.frequency, preferred_times: input.preferredTimes, platforms: input.platforms, product_ids: input.productIds, requested_posts: input.requestedPosts, created_by: input.createdBy })
+    });
+    if (!rows[0]?.id) throw new AppError('DATABASE_ERROR', 502, 'Supabase did not return the created marketing campaign.');
+    return rows[0].id;
+  }
+
+  async createMarketingCampaignWithPosts(input: { campaign: Record<string, unknown>; posts: Array<Record<string, unknown>>; createdBy: string | null }): Promise<{ campaignId: string; assetIds: string[] }> {
+    const campaign = { ...input.campaign, month: typeof input.campaign.month === 'string' ? `${input.campaign.month}-01` : input.campaign.month };
+    const result = await this.rpc<{ campaign_id: string; asset_ids: string[] }>('create_marketing_campaign_with_posts', { p_campaign: campaign, p_posts: input.posts, p_created_by: input.createdBy });
+    if (!result?.campaign_id || !Array.isArray(result.asset_ids)) throw new AppError('DATABASE_ERROR', 502, 'Supabase did not return the generated campaign and posts.');
+    return { campaignId: result.campaign_id, assetIds: result.asset_ids };
+  }
+
+  async updateMarketingCampaign(id: string, input: { status?: 'draft' | 'active' | 'paused' | 'completed'; name?: string; objective?: string; audience?: string; tone?: string }): Promise<boolean> {
+    const query = new URLSearchParams({ id: `eq.${id}` });
+    const { audience, ...fields } = input;
+    const rows = await this.rest<Array<{ id: string }>>(`marketing_campaigns?${query}`, {
+      method: 'PATCH', headers: { prefer: 'return=representation' }, body: JSON.stringify({ ...fields, ...(audience === undefined ? {} : { target_audience: audience }), updated_at: new Date().toISOString() })
+    });
+    return rows.length > 0;
+  }
+
+  async getMarketingPlanSettings(): Promise<MarketingPlanSettings | null> {
+    const rows = await this.rest<Array<MarketingPlanSettings>>('marketing_plan_settings?select=goals,target_audience,product_ids,platforms,campaign_themes,posts_per_month,important_dates,brand_voice,visual_preferences&id=eq.true&limit=1');
+    return rows[0] ?? null;
+  }
+
+  async getProductImageAllowance(): Promise<{ included: number; used: number; remaining: number }> {
+    const [settings, generations] = await Promise.all([
+      this.rest<Array<{ included_limit: number }>>('product_image_generation_settings?select=included_limit&id=eq.true&limit=1'),
+      this.rest<Array<{ id: string }>>('product_image_generations?select=id&status=in.(pending,completed)')
+    ]);
+    const included = Number(settings[0]?.included_limit ?? 3);
+    const used = generations.length;
+    return { included, used, remaining: Math.max(0, included - used) };
+  }
+
+  async setProductImageAllowance(actorId: string, included: number): Promise<void> {
+    await this.rest('product_image_generation_settings?id=eq.true', {
+      method: 'PATCH', headers: { prefer: 'return=minimal' },
+      body: JSON.stringify({ included_limit: included, updated_by: actorId, updated_at: new Date().toISOString() })
+    });
+  }
+
+  async reserveProductImageGeneration(input: { id: string; productId: string; requestedBy: string }): Promise<void> {
+    await this.rpc('reserve_product_image_generation', { p_id: input.id, p_product_id: input.productId, p_requested_by: input.requestedBy });
+  }
+
+  async finishProductImageGeneration(input: { id: string; status: 'completed' | 'failed'; imagePath?: string | null; model?: string | null }): Promise<void> {
+    await this.rpc('finish_product_image_generation', { p_id: input.id, p_status: input.status, p_image_path: input.imagePath ?? null, p_model: input.model ?? null });
+  }
+
+  async listProductImageGenerations(productId: string): Promise<unknown[]> {
+    const query = new URLSearchParams({ select: 'id,product_id,status,image_path,model,selected,created_at,completed_at', product_id: `eq.${productId}`, status: 'eq.completed', order: 'created_at.desc', limit: '30' });
+    return await this.rest<unknown[]>(`product_image_generations?${query}`);
+  }
+
+  async selectProductImage(actorId: string, productId: string, generationId: string): Promise<void> {
+    await this.rpc('select_product_image_generation', { p_actor_id: actorId, p_product_id: productId, p_generation_id: generationId });
+  }
+
+  async uploadProductImage(input: { id: string; productId: string; mimeType: string; data: Buffer }): Promise<string> {
+    const extension = input.mimeType === 'image/jpeg' ? 'jpg' : input.mimeType === 'image/webp' ? 'webp' : 'png';
+    const path = `products/${input.productId}/generated-${input.id}.${extension}`;
+    let response: Response;
+    try {
+      const headers: Record<string, string> = { apikey: this.secretKey, 'content-type': input.mimeType, 'x-upsert': 'false' };
+      if (this.secretKey.startsWith('eyJ')) headers.authorization = `Bearer ${this.secretKey}`;
+      response = await fetch(`${this.url}/storage/v1/object/storefront-assets/${path.split('/').map(encodeURIComponent).join('/')}`, { method: 'POST', headers, body: Uint8Array.from(input.data), signal: AbortSignal.timeout(20_000) });
+    } catch {
+      throw new AppError('STORAGE_UNAVAILABLE', 503, 'Product image storage is temporarily unavailable.');
+    }
+    if (!response.ok) throw new AppError('STORAGE_UPLOAD_FAILED', 502, 'The generated product image could not be stored.');
+    return path;
+  }
+
+  async saveMarketingPlanSettings(actorId: string, settings: MarketingPlanSettings): Promise<void> {
+    await this.rest('marketing_plan_settings?on_conflict=id', {
+      method: 'POST',
+      headers: { prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ id: true, ...settings, updated_by: actorId })
+    });
   }
 
   async recordAuditLog(input: { userId: string; action: string; entityType: string; entityId: string | null; metadata: Record<string, unknown> }): Promise<void> {
@@ -615,10 +753,10 @@ export class SupabaseGateway implements PricingRepository, AuthGateway {
     return `${this.url.replace(/\/$/, '')}${pathPart}`;
   }
 
-  async createMarketingAsset(input: { orderId: null; productId: string | null; campaignBrief: string; campaignType: string; createdBy: string | null; designUrl: string | null; platform: string; caption: string }): Promise<string> {
+  async createMarketingAsset(input: { orderId: null; productId: string | null; campaignBrief: string; campaignType: string; createdBy: string | null; designUrl: string | null; platform: string; caption: string; scheduledAt?: string | null; campaignId?: string | null; imageStatus?: 'not_generated' | 'processing' | 'generated' | 'failed'; imageError?: string | null }): Promise<string> {
     const rows = await this.rest<Array<{ id: string }>>('marketing_assets', {
       method: 'POST', headers: { prefer: 'return=representation' },
-      body: JSON.stringify({ order_id: null, product_id: input.productId, campaign_brief: input.campaignBrief, campaign_type: input.campaignType, created_by: input.createdBy, design_url: input.designUrl, platform: input.platform, caption: input.caption, status: 'pending_approval' })
+      body: JSON.stringify({ order_id: null, campaign_id: input.campaignId ?? null, product_id: input.productId, campaign_brief: input.campaignBrief, campaign_type: input.campaignType, created_by: input.createdBy, design_url: input.designUrl, image_status: input.imageStatus ?? (input.designUrl ? 'generated' : 'not_generated'), image_error: input.imageError ?? null, platform: input.platform, caption: input.caption, scheduled_at: input.scheduledAt ?? null, status: 'pending_approval' })
     });
     if (!rows[0]?.id) throw new AppError('DATABASE_ERROR', 502, 'Supabase did not return the created marketing asset.');
     return rows[0].id;
@@ -626,5 +764,32 @@ export class SupabaseGateway implements PricingRepository, AuthGateway {
 
   async updateMarketingAssetStatus(id: string, status: 'approved' | 'rejected'): Promise<void> {
     await this.rpc('set_marketing_asset_status', { p_asset_id: id, p_new_status: status });
+  }
+
+  async updatePendingMarketingDraft(id: string, caption: string, scheduledAt: string | null, options: { productId?: string | null; platform?: string } = {}): Promise<boolean> {
+    return await this.rpc<boolean>('update_marketing_campaign_draft', { p_asset_id: id, p_caption: caption, p_scheduled_at: scheduledAt, p_platform: options.platform ?? 'general', p_product_id: options.productId ?? null });
+  }
+
+  async updateMarketingAssetImage(id: string, path: string | null, status: 'generated' | 'failed', error: string | null = null): Promise<boolean> {
+    const query = new URLSearchParams({ id: `eq.${id}`, order_id: 'is.null' });
+    const rows = await this.rest<Array<{ id: string }>>(`marketing_assets?${query}`, {
+      method: 'PATCH', headers: { prefer: 'return=representation' },
+      body: JSON.stringify({ ...(path === null ? {} : { design_url: path }), image_status: status, image_error: error })
+    });
+    return rows.length > 0;
+  }
+
+  async deletePendingMarketingDraft(id: string): Promise<boolean> {
+    const query = new URLSearchParams({ id: `eq.${id}`, status: 'in.(draft,pending_approval,rejected)', order_id: 'is.null' });
+    const rows = await this.rest<Array<{ id: string }>>(`marketing_assets?${query}`, { method: 'DELETE', headers: { prefer: 'return=representation' } });
+    return rows.length > 0;
+  }
+
+  async deletePendingMarketingDrafts(_actorId: string): Promise<number> {
+    const query = new URLSearchParams({ status: 'in.(draft,pending_approval)', order_id: 'is.null' });
+    const rows = await this.rest<Array<{ id: string }>>(`marketing_assets?${query}`, {
+      method: 'DELETE', headers: { prefer: 'return=representation' }
+    });
+    return rows.length;
   }
 }

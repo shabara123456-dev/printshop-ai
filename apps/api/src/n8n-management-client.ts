@@ -20,6 +20,8 @@ export type N8nOperationsOverview = {
   status: 'connected' | 'not_configured' | 'unavailable';
   workflows: N8nWorkflow[];
   executions: N8nExecution[];
+  issue?: 'unauthorized' | 'forbidden' | 'upstream_error' | 'network_error' | 'invalid_response';
+  executionsIssue?: 'unauthorized' | 'forbidden' | 'upstream_error' | 'network_error' | 'invalid_response';
 };
 
 type N8nPage<T> = { data?: unknown; nextCursor?: string | null };
@@ -34,6 +36,13 @@ function nullableText(value: unknown): string | null {
 
 function list<T>(value: unknown): T[] {
   return Array.isArray(value) ? value as T[] : [];
+}
+
+type N8nIssue = NonNullable<N8nOperationsOverview['issue']>;
+
+class N8nManagementError extends Error {
+  readonly issue: N8nIssue;
+  constructor(issue: N8nIssue) { super(issue); this.issue = issue; }
 }
 
 function workflowRow(value: unknown): N8nWorkflow | null {
@@ -70,34 +79,41 @@ export class N8nManagementClient {
   private readonly baseUrl: string;
   private readonly apiKey?: string;
   private readonly fetcher: typeof fetch;
+  private readonly timeoutMs: number;
 
-  constructor(options: { baseUrl?: string; apiKey?: string; fetcher?: typeof fetch } = {}) {
+  constructor(options: { baseUrl?: string; apiKey?: string; fetcher?: typeof fetch; timeoutMs?: number } = {}) {
     const configuredBase = options.baseUrl?.trim().replace(/\/+$/, '') ?? '';
     this.baseUrl = configuredBase && !/\/api\/v\d+$/.test(configuredBase) ? `${configuredBase}/api/v1` : configuredBase;
     this.apiKey = options.apiKey?.trim() || undefined;
     this.fetcher = options.fetcher ?? fetch;
+    // n8n on Render's free tier can take a while to wake from idle. Keep the
+    // manager console from declaring a healthy cold start unavailable too soon.
+    this.timeoutMs = Math.max(1_000, Math.min(options.timeoutMs ?? 55_000, 60_000));
   }
 
   async overview(): Promise<N8nOperationsOverview> {
     if (!this.baseUrl || !this.apiKey) return { status: 'not_configured', workflows: [], executions: [] };
 
-    let workflows: N8nWorkflow[];
-    let executions: N8nExecution[];
-    try {
-      const [workflowResponse, executionResponse] = await Promise.all([
-        this.get('/workflows?limit=100'),
-        this.get('/executions?limit=25&includeData=false')
-      ]);
-      const workflowPage = object(workflowResponse) as N8nPage<N8nWorkflow>;
-      const workflowRows = list<unknown>(workflowPage.data).map(workflowRow).filter((row): row is N8nWorkflow => row !== null);
-      const names = new Map(workflowRows.map((workflow) => [workflow.id, workflow.name]));
-      const executionPage = object(executionResponse) as N8nPage<N8nExecution>;
-      workflows = workflowRows;
-      executions = list<unknown>(executionPage.data).map((row) => executionRow(row, names)).filter((row): row is N8nExecution => row !== null);
-    } catch {
-      return { status: 'unavailable', workflows: [], executions: [] };
+    const [workflowResult, executionResult] = await Promise.allSettled([
+      this.get('/workflows?limit=100'),
+      this.get('/executions?limit=25&includeData=false')
+    ]);
+    if (workflowResult.status === 'rejected') {
+      return { status: 'unavailable', workflows: [], executions: [], issue: this.issueFrom(workflowResult.reason) };
     }
-    return { status: 'connected', workflows, executions };
+
+    const workflowPage = object(workflowResult.value) as N8nPage<N8nWorkflow>;
+    const workflowRows = list<unknown>(workflowPage.data).map(workflowRow).filter((row): row is N8nWorkflow => row !== null);
+    const names = new Map(workflowRows.map((workflow) => [workflow.id, workflow.name]));
+
+    if (executionResult.status === 'rejected') {
+      // Workflow visibility remains useful when the API key is intentionally
+      // limited to workflow:list and does not include execution:list.
+      return { status: 'connected', workflows: workflowRows, executions: [], executionsIssue: this.issueFrom(executionResult.reason) };
+    }
+    const executionPage = object(executionResult.value) as N8nPage<N8nExecution>;
+    const executions = list<unknown>(executionPage.data).map((row) => executionRow(row, names)).filter((row): row is N8nExecution => row !== null);
+    return { status: 'connected', workflows: workflowRows, executions };
   }
 
   private async get(path: string): Promise<unknown> {
@@ -106,13 +122,22 @@ export class N8nManagementClient {
       response = await this.fetcher(`${this.baseUrl}${path}`, {
         method: 'GET',
         headers: { accept: 'application/json', 'X-N8N-API-KEY': this.apiKey! },
-        signal: AbortSignal.timeout(8_000)
+        signal: AbortSignal.timeout(this.timeoutMs)
       });
     } catch {
-      throw new Error('n8n API request failed');
+      throw new N8nManagementError('network_error');
     }
-    if (!response.ok) throw new Error(`n8n API returned HTTP ${response.status}`);
+    if (!response.ok) {
+      const issue: N8nIssue = response.status === 401 ? 'unauthorized'
+        : response.status === 403 ? 'forbidden'
+          : 'upstream_error';
+      throw new N8nManagementError(issue);
+    }
     try { return await response.json(); }
-    catch { throw new Error('n8n API returned invalid JSON'); }
+    catch { throw new N8nManagementError('invalid_response'); }
+  }
+
+  private issueFrom(error: unknown): N8nIssue {
+    return error instanceof N8nManagementError ? error.issue : 'upstream_error';
   }
 }

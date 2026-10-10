@@ -7,15 +7,16 @@ type Workflow = {
   nodes: Array<{ name: string; type: string; parameters: Record<string, unknown> }>;
 };
 
-const workflows = JSON.parse(await readFile(new URL('../../../n8n/workflows/printshop-event-notifications.json', import.meta.url), 'utf8')) as Workflow[];
-const workflow = workflows[0];
+const parsedWorkflow = JSON.parse(await readFile(new URL('../../../n8n/workflows/printshop-event-notifications.json', import.meta.url), 'utf8')) as Workflow | Workflow[];
+// n8n exports a single workflow as an object. Older seed files used an array wrapper.
+const workflow = Array.isArray(parsedWorkflow) ? parsedWorkflow[0] : parsedWorkflow;
 const code = String(workflow.nodes.find((node) => node.type === 'n8n-nodes-base.code')?.parameters.jsCode ?? '');
 const routeEvent = new Function('$json', code) as (payload: Record<string, unknown>) => Array<{ json: Record<string, unknown> }>;
 
 test('n8n event workflow retains its protected inactive state until credentials are configured', () => {
   assert.equal(workflow.active, false);
   assert.ok(workflow.nodes.some((node) => node.type === 'n8n-nodes-base.webhook'));
-  assert.ok(workflow.nodes.some((node) => node.type === 'n8n-nodes-base.emailSend'));
+  assert.ok(workflow.nodes.some((node) => node.type === 'n8n-nodes-base.emailSend' || node.type === 'n8n-nodes-base.gmail'));
 });
 
 test('n8n router ignores routine inventory events and alerts manager on low stock', () => {
