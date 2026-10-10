@@ -1020,6 +1020,18 @@ export function App() {
     finally { setBusy(false); }
   }
 
+  async function uploadMarketingPostImage(id: string, file: File) {
+    if (file.size > 8 * 1024 * 1024) { setError(lang === 'ar' ? 'يجب ألا يتجاوز حجم الصورة 8 ميجابايت.' : 'Image must be 8 MB or smaller.'); return; }
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) { setError(lang === 'ar' ? 'ارفع صورة JPG أو PNG أو WebP.' : 'Upload a JPG, PNG, or WebP image.'); return; }
+    setBusy(true); setError(''); setNotice('');
+    try {
+      await api(`/api/manager/marketing/assets/${encodeURIComponent(id)}/image/upload`, { method: 'POST', headers: { 'content-type': file.type }, body: file });
+      setNotice(lang === 'ar' ? 'تم رفع الصورة وحفظها.' : 'Photo uploaded and saved.');
+      await reload();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : t.apiError); await reload(); }
+    finally { setBusy(false); }
+  }
+
   async function duplicateMarketingPost(id: string) {
     setBusy(true); setError('');
     try { await api(`/api/manager/marketing/assets/${encodeURIComponent(id)}/duplicate`, { method: 'POST', body: JSON.stringify({}) }); await reload(); }
@@ -1120,7 +1132,7 @@ export function App() {
         })}</div>}
         {tab === 'marketing' && <div className="marketing-workspace">
           <MarketingCampaignBuilder lang={lang} products={products.filter((product) => product.active !== false).map(({ id, name, category }) => ({ id, name, category }))} busy={busy} onGenerate={generateMarketingCampaign} />
-          <MarketingCampaignWorkspace lang={lang} campaigns={marketingCampaigns} assets={marketingAssets} products={products.filter((product) => product.active !== false).map(({ id, name, category }) => ({ id, name, category }))} busy={busy} imageLinks={privateFileLinks} onViewImage={(path) => void prepareMarketingImageLink(path)} onCampaign={changeMarketingCampaign} onSavePost={saveMarketingDraft} onStatus={setMarketingStatus} onImage={generatePostImage} onDuplicate={duplicateMarketingPost} onDelete={deleteMarketingPost} onDeleteAll={deletePreviousCampaignDrafts} onAddPost={addMarketingPost} />
+          <MarketingCampaignWorkspace lang={lang} campaigns={marketingCampaigns} assets={marketingAssets} products={products.filter((product) => product.active !== false).map(({ id, name, category }) => ({ id, name, category }))} busy={busy} imageLinks={privateFileLinks} onViewImage={(path) => void prepareMarketingImageLink(path)} onCampaign={changeMarketingCampaign} onSavePost={saveMarketingDraft} onStatus={setMarketingStatus} onImage={generatePostImage} onUpload={uploadMarketingPostImage} onDuplicate={duplicateMarketingPost} onDelete={deleteMarketingPost} onDeleteAll={deletePreviousCampaignDrafts} onAddPost={addMarketingPost} />
         </div>}
         {tab === 'ai' && isManager && <section className="card ai-chat"><div className="ai-history" aria-live="polite">{aiMessages.length === 0 ? <p className="ai-welcome">{t.aiWelcome}</p> : aiMessages.map((message, index) => <article className={`ai-message ${message.role}`} key={`${message.role}-${index}`}><small>{message.role === 'assistant' ? 'HERMES' : (lang === 'ar' ? 'أنت' : 'You')}</small><p>{message.content}</p></article>)}</div><form className="ai-composer" onSubmit={sendAiMessage}><textarea maxLength={4000} rows={3} value={aiInput} onChange={(event) => setAiInput(event.target.value)} placeholder={t.aiPlaceholder} /><button className="primary" disabled={busy || !aiInput.trim()}>{busy ? t.loading : t.aiSend}</button></form></section>}
         <footer className="footer"><span>INKORA · EGP · {new Date().getFullYear()}</span><span>{isStaff ? 'OPERATIONS CONSOLE' : 'CUSTOMER PORTAL'}</span></footer>

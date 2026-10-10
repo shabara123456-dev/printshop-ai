@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 
 type Row = Record<string, unknown>;
 type Product = { id: string; name: string; category: string };
@@ -10,17 +10,18 @@ const localDate = (value: unknown) => {
   return Number.isNaN(date.getTime()) ? '' : new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 };
 
-export function MarketingCampaignWorkspace({ lang, campaigns, assets, products, busy, imageLinks, onViewImage, onCampaign, onSavePost, onStatus, onImage, onDuplicate, onDelete, onDeleteAll, onAddPost }: {
+export function MarketingCampaignWorkspace({ lang, campaigns, assets, products, busy, imageLinks, onViewImage, onCampaign, onSavePost, onStatus, onImage, onUpload, onDuplicate, onDelete, onDeleteAll, onAddPost }: {
   lang: 'en' | 'ar'; campaigns: Row[]; assets: Row[]; products: Product[]; busy: boolean; imageLinks: Record<string, string>;
   onViewImage: (path: string) => void; onCampaign: (id: string, update: Row) => Promise<void>;
   onSavePost: (asset: Row, edit: Edit) => Promise<void>; onStatus: (id: string, status: 'approved' | 'rejected') => Promise<void>;
-  onImage: (id: string) => Promise<void>; onDuplicate: (id: string) => Promise<void>; onDelete: (id: string) => Promise<void>; onDeleteAll: () => Promise<void>;
+  onImage: (id: string) => Promise<void>; onUpload: (id: string, file: File) => Promise<void>; onDuplicate: (id: string) => Promise<void>; onDelete: (id: string) => Promise<void>; onDeleteAll: () => Promise<void>;
   onAddPost: (campaignId: string) => Promise<void>;
 }) {
   const ar = lang === 'ar';
   const [edits, setEdits] = useState<Record<string, Edit>>({});
   const [campaignEdits, setCampaignEdits] = useState<Record<string, { name: string; objective: string; audience: string; tone: string }>>({});
   const [campaignBusy, setCampaignBusy] = useState<string | null>(null);
+  const uploadRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const patchEdit = (asset: Row, patch: Partial<Edit>) => {
     const id = String(asset.id);
     setEdits((current) => {
@@ -57,6 +58,8 @@ export function MarketingCampaignWorkspace({ lang, campaigns, assets, products, 
       </> : <><p>{String(asset.caption ?? '')}</p>{asset.scheduled_at && <small>{ar ? 'الموعد: ' : 'Scheduled: '}{new Date(String(asset.scheduled_at)).toLocaleString(ar ? 'ar-EG' : 'en-EG', { timeZone: 'Africa/Cairo' })}</small>}</>}
       <div className="marketing-actions post-tools">
         <button className="secondary compact" disabled={busy || asset.status !== 'pending_approval'} onClick={() => void onImage(id)}>{asset.image_status === 'generated' ? (ar ? 'تغيير الصورة' : 'Regenerate image') : asset.image_status === 'failed' ? (ar ? 'إعادة المحاولة للصورة' : 'Retry image') : (ar ? 'إنشاء صورة' : 'Generate image')}</button>
+        <input ref={(element) => { uploadRefs.current[id] = element; }} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; if (file) void onUpload(id, file); }} />
+        <button className="secondary compact" disabled={busy || asset.status !== 'pending_approval'} onClick={() => uploadRefs.current[id]?.click()}>{ar ? 'رفع صورة' : 'Upload photo'}</button>
         <button className="secondary compact" disabled={busy} onClick={() => void onDuplicate(id)}>{ar ? 'نسخ المنشور' : 'Duplicate post'}</button>
         {asset.order_id == null && ['draft','pending_approval','rejected'].includes(String(asset.status)) && <button className="text-button" disabled={busy} onClick={() => void onDelete(id)}>{ar ? 'حذف المنشور' : 'Delete post'}</button>}
       </div>

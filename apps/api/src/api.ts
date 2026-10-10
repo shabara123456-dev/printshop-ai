@@ -178,6 +178,26 @@ async function readJson(request: IncomingMessage): Promise<Record<string, unknow
   }
 }
 
+async function readBinary(request: IncomingMessage, maxBytes: number): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of request) {
+    const bytes = Buffer.from(chunk);
+    size += bytes.length;
+    if (size > maxBytes) throw new AppError('PAYLOAD_TOO_LARGE', 413, 'Image must be 8 MB or smaller.');
+    chunks.push(bytes);
+  }
+  if (size === 0) throw new AppError('INVALID_FILE', 400, 'Choose an image to upload.');
+  return Buffer.concat(chunks, size);
+}
+
+function matchesImageSignature(data: Buffer, mimeType: string): boolean {
+  if (mimeType === 'image/png') return data.length >= 8 && data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  if (mimeType === 'image/jpeg') return data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff;
+  if (mimeType === 'image/webp') return data.length >= 12 && data.toString('ascii', 0, 4) === 'RIFF' && data.toString('ascii', 8, 12) === 'WEBP';
+  return false;
+}
+
 function send(response: ServerResponse, status: number, body: unknown): void {
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
   response.end(JSON.stringify(body));
@@ -1771,6 +1791,27 @@ export function createApiServer(deps: Dependencies): Server {
           try { await deps.gateway.recordAiRun({ feature: 'marketing_image', model: process.env.MARKETING_IMAGE_PROVIDER ?? 'configured image provider', inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0, latencyMs: 0, success: false }); } catch { /* preserve original generation error */ }
           throw error;
         }
+        return;
+      }
+
+      const marketingImageUploadMatch = method === 'POST' ? /^\/api\/manager\/marketing\/assets\/([0-9a-f-]{36})\/image\/upload$/.exec(path) : null;
+      if (marketingImageUploadMatch) {
+        requireRole(actor, ['manager', 'admin']);
+        if (!deps.gateway.uploadMarketingImage || !deps.gateway.updateMarketingAssetImage) throw new AppError('MARKETING_IMAGE_STORAGE_UNAVAILABLE', 503, 'Marketing image storage is unavailable on this server.');
+        const id = uuid(marketingImageUploadMatch[1], 'marketing_asset_id');
+        const asset = (await deps.gateway.listMarketingAssets()).find((value) => value && typeof value === 'object' && (value as Record<string, unknown>).id === id) as Record<string, unknown> | undefined;
+        if (!asset || asset.order_id !== null || asset.status !== 'pending_approval') throw new AppError('MARKETING_DRAFT_NOT_EDITABLE', 409, 'Only a pending marketing draft can receive an image.');
+        const mimeType = String(request.headers['content-type'] ?? '').split(';', 1)[0].trim().toLowerCase();
+        if (!['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) throw new AppError('INVALID_FILE', 415, 'Upload a JPG, PNG, or WebP image.');
+        const data = await readBinary(request, 8 * 1024 * 1024);
+        if (!matchesImageSignature(data, mimeType)) throw new AppError('INVALID_FILE', 415, 'The selected file does not match its image type.');
+        const imagePath = await deps.gateway.uploadMarketingImage({ id: randomUUID(), mimeType, data });
+        await deps.gateway.updateMarketingAssetImage(id, imagePath, 'generated');
+        if (deps.gateway.recordAuditLog) {
+          try { await deps.gateway.recordAuditLog({ userId: actor.id, action: 'marketing.image.uploaded', entityType: 'marketing_asset', entityId: id, metadata: { mime_type: mimeType, size_bytes: data.length } }); }
+          catch (error) { console.error(JSON.stringify({ level: 'error', event: 'marketing.image_upload_audit_failed', request_id: requestId, asset_id: id, error_code: error instanceof AppError ? error.code : 'AUDIT_WRITE_FAILED' })); }
+        }
+        send(response, 201, { asset_id: id, image_status: 'generated', design_url: imagePath, source: 'manager_upload' });
         return;
       }
 
