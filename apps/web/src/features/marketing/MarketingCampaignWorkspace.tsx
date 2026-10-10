@@ -10,8 +10,8 @@ const localDate = (value: unknown) => {
   return Number.isNaN(date.getTime()) ? '' : new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 };
 
-export function MarketingCampaignWorkspace({ lang, campaigns, assets, products, busy, imageLinks, onViewImage, onCampaign, onSavePost, onStatus, onImage, onUpload, onDuplicate, onDelete, onDeleteAll, onAddPost }: {
-  lang: 'en' | 'ar'; campaigns: Row[]; assets: Row[]; products: Product[]; busy: boolean; imageLinks: Record<string, string>;
+export function MarketingCampaignWorkspace({ lang, campaigns, assets, products, busy, imageLinks, imageGeneratingId, onViewImage, onCampaign, onSavePost, onStatus, onImage, onUpload, onDuplicate, onDelete, onDeleteAll, onAddPost }: {
+  lang: 'en' | 'ar'; campaigns: Row[]; assets: Row[]; products: Product[]; busy: boolean; imageLinks: Record<string, string>; imageGeneratingId: string | null;
   onViewImage: (path: string) => void; onCampaign: (id: string, update: Row) => Promise<void>;
   onSavePost: (asset: Row, edit: Edit) => Promise<void>; onStatus: (id: string, status: 'approved' | 'rejected') => Promise<void>;
   onImage: (id: string) => Promise<void>; onUpload: (id: string, file: File) => Promise<void>; onDuplicate: (id: string) => Promise<void>; onDelete: (id: string) => Promise<void>; onDeleteAll: () => Promise<void>;
@@ -57,12 +57,13 @@ export function MarketingCampaignWorkspace({ lang, campaigns, assets, products, 
         <div className="marketing-actions"><button className="primary" disabled={busy || !edit.caption.trim()} onClick={() => void onSavePost(asset, edit)}>{ar ? 'حفظ التعديلات والموعد' : 'Save edits & schedule'}</button>{asset.status === 'pending_approval' && <button className="secondary compact" disabled={busy} onClick={() => void onStatus(id, 'approved')}>{ar ? 'اعتماد وجدولة' : 'Approve & schedule'}</button>}<button className="text-button" disabled={busy} onClick={() => void onStatus(id, 'rejected')}>{ar ? 'رفض المنشور' : 'Reject post'}</button></div>
       </> : <><p>{String(asset.caption ?? '')}</p>{asset.scheduled_at && <small>{ar ? 'الموعد: ' : 'Scheduled: '}{new Date(String(asset.scheduled_at)).toLocaleString(ar ? 'ar-EG' : 'en-EG', { timeZone: 'Africa/Cairo' })}</small>}</>}
       <div className="marketing-actions post-tools">
-        <button className="secondary compact" disabled={busy || asset.status !== 'pending_approval'} onClick={() => void onImage(id)}>{asset.image_status === 'generated' ? (ar ? 'تغيير الصورة' : 'Regenerate image') : asset.image_status === 'failed' ? (ar ? 'إعادة المحاولة للصورة' : 'Retry image') : (ar ? 'إنشاء صورة' : 'Generate image')}</button>
+        <button className="secondary compact" disabled={busy || asset.status !== 'pending_approval'} onClick={() => void onImage(id)}>{imageGeneratingId === id ? (ar ? 'جارٍ إنشاء الصورة…' : 'Generating image…') : asset.image_status === 'generated' ? (ar ? 'تغيير الصورة' : 'Regenerate image') : asset.image_status === 'failed' ? (ar ? 'إعادة المحاولة للصورة' : 'Retry image') : (ar ? 'إنشاء صورة' : 'Generate image')}</button>
         <input ref={(element) => { uploadRefs.current[id] = element; }} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; if (file) void onUpload(id, file); }} />
         <button className="secondary compact" disabled={busy || asset.status !== 'pending_approval'} onClick={() => uploadRefs.current[id]?.click()}>{ar ? 'رفع صورة' : 'Upload photo'}</button>
         <button className="secondary compact" disabled={busy} onClick={() => void onDuplicate(id)}>{ar ? 'نسخ المنشور' : 'Duplicate post'}</button>
         {asset.order_id == null && ['draft','pending_approval','rejected'].includes(String(asset.status)) && <button className="text-button" disabled={busy} onClick={() => void onDelete(id)}>{ar ? 'حذف المنشور' : 'Delete post'}</button>}
       </div>
+      {imageGeneratingId === id && <small className="subtext">{ar ? 'التوليد المجاني يستخدم قائمة انتظار مشتركة. اترك هذه الصفحة مفتوحة حتى تظهر النتيجة أو رسالة الخطأ.' : 'Free generation uses a shared queue. Keep this page open until the image or an error appears.'}</small>}
       {asset.image_status === 'failed' && <small className="alert error">{ar ? 'تعذر إنشاء الصورة: ' : 'Image generation failed: '}{String(asset.image_error ?? 'unknown')}</small>}
       {Array.isArray(asset.marketing_posts) && <small>{ar ? 'حالة النشر' : 'Publishing'}: {String((asset.marketing_posts[0] as Row | undefined)?.status ?? 'draft').replaceAll('_', ' ')}</small>}
     </article>;

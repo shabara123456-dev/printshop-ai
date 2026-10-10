@@ -231,6 +231,7 @@ export function App() {
   const [requests, setRequests] = useState<Row[]>([]);
   const [marketingAssets, setMarketingAssets] = useState<Row[]>([]);
   const [marketingCampaigns, setMarketingCampaigns] = useState<Row[]>([]);
+  const [imageGeneratingId, setImageGeneratingId] = useState<string | null>(null);
   const [businessAnalytics, setBusinessAnalytics] = useState<Row | null>(null);
   const [analyticsRange, setAnalyticsRange] = useState(currentUtcDates);
   const [brief, setBrief] = useState('');
@@ -1015,9 +1016,10 @@ export function App() {
 
   async function generatePostImage(id: string) {
     setBusy(true); setError(''); setNotice('');
+    setImageGeneratingId(id);
     try { await api(`/api/manager/marketing/assets/${encodeURIComponent(id)}/image`, { method: 'POST', body: JSON.stringify({}) }); setNotice(lang === 'ar' ? 'تم إنشاء صورة المنشور.' : 'Post image generated and saved.'); await reload(); }
     catch (cause) { setError(cause instanceof Error ? cause.message : t.apiError); await reload(); }
-    finally { setBusy(false); }
+    finally { setBusy(false); setImageGeneratingId(null); }
   }
 
   async function uploadMarketingPostImage(id: string, file: File) {
@@ -1132,7 +1134,7 @@ export function App() {
         })}</div>}
         {tab === 'marketing' && <div className="marketing-workspace">
           <MarketingCampaignBuilder lang={lang} products={products.filter((product) => product.active !== false).map(({ id, name, category }) => ({ id, name, category }))} busy={busy} onGenerate={generateMarketingCampaign} />
-          <MarketingCampaignWorkspace lang={lang} campaigns={marketingCampaigns} assets={marketingAssets} products={products.filter((product) => product.active !== false).map(({ id, name, category }) => ({ id, name, category }))} busy={busy} imageLinks={privateFileLinks} onViewImage={(path) => void prepareMarketingImageLink(path)} onCampaign={changeMarketingCampaign} onSavePost={saveMarketingDraft} onStatus={setMarketingStatus} onImage={generatePostImage} onUpload={uploadMarketingPostImage} onDuplicate={duplicateMarketingPost} onDelete={deleteMarketingPost} onDeleteAll={deletePreviousCampaignDrafts} onAddPost={addMarketingPost} />
+          <MarketingCampaignWorkspace lang={lang} campaigns={marketingCampaigns} assets={marketingAssets} products={products.filter((product) => product.active !== false).map(({ id, name, category }) => ({ id, name, category }))} busy={busy} imageLinks={privateFileLinks} imageGeneratingId={imageGeneratingId} onViewImage={(path) => void prepareMarketingImageLink(path)} onCampaign={changeMarketingCampaign} onSavePost={saveMarketingDraft} onStatus={setMarketingStatus} onImage={generatePostImage} onUpload={uploadMarketingPostImage} onDuplicate={duplicateMarketingPost} onDelete={deleteMarketingPost} onDeleteAll={deletePreviousCampaignDrafts} onAddPost={addMarketingPost} />
         </div>}
         {tab === 'ai' && isManager && <section className="card ai-chat"><div className="ai-history" aria-live="polite">{aiMessages.length === 0 ? <p className="ai-welcome">{t.aiWelcome}</p> : aiMessages.map((message, index) => <article className={`ai-message ${message.role}`} key={`${message.role}-${index}`}><small>{message.role === 'assistant' ? 'HERMES' : (lang === 'ar' ? 'أنت' : 'You')}</small><p>{message.content}</p></article>)}</div><form className="ai-composer" onSubmit={sendAiMessage}><textarea maxLength={4000} rows={3} value={aiInput} onChange={(event) => setAiInput(event.target.value)} placeholder={t.aiPlaceholder} /><button className="primary" disabled={busy || !aiInput.trim()}>{busy ? t.loading : t.aiSend}</button></form></section>}
         <footer className="footer"><span>INKORA · EGP · {new Date().getFullYear()}</span><span>{isStaff ? 'OPERATIONS CONSOLE' : 'CUSTOMER PORTAL'}</span></footer>
