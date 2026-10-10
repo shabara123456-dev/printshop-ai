@@ -1672,7 +1672,7 @@ export function createApiServer(deps: Dependencies): Server {
           const row = value as Record<string, unknown>;
           const caption = requiredText(row.caption, `posts[${index}].caption`, 3000);
           const tags = Array.isArray(row.hashtags) ? row.hashtags.filter((tag): tag is string => typeof tag === 'string').slice(0, 8).map((tag) => tag.startsWith('#') ? tag : `#${tag.replace(/^#+/, '')}`) : [];
-          return { caption: `${caption}${tags.length ? `\n\n${tags.join(' ')}` : ''}`, theme: 'campaign', ...schedule[index] };
+          return { caption: `${caption}${tags.length ? `\n\n${tags.join(' ')}` : ''}`, theme: products.length ? 'product_showcase' : 'brand', ...schedule[index] };
         });
         const result = await deps.gateway.createMarketingCampaignWithPosts({ campaign: { name, month, objective, target_audience: audience, language, tone, posting_frequency: frequency, preferred_times: times, platforms, product_ids: productIds, requested_posts: requested }, posts, createdBy: actor.id });
         try { await deps.gateway.recordAiRun({ feature: 'marketing_campaign_generation', model: completion.model, inputTokens: completion.usage?.prompt_tokens ?? 0, outputTokens: completion.usage?.completion_tokens ?? 0, latencyMs: Date.now() - startedAt, success: true }); } catch { /* campaign is already persisted */ }
