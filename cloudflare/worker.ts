@@ -4,6 +4,7 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { createApiServer } from '../apps/api/src/api.ts';
 import { SupabaseGateway } from '../apps/api/src/supabase.ts';
 import { AiHordeMarketingImageClient } from '../apps/api/src/ai-horde-image-client.ts';
+import { CloudflareAiImageClient, type CloudflareAiBinding } from '../apps/api/src/cloudflare-ai-image-client.ts';
 import { HermesRemoteHttpClient } from '../apps/api/src/hermes-http-client.ts';
 import { drainAutomationOutbox } from '../apps/api/src/automation-outbox.ts';
 import { N8nManagementClient } from '../apps/api/src/n8n-management-client.ts';
@@ -14,6 +15,7 @@ let gatewayInstance: SupabaseGateway | undefined;
 
 /** Cloudflare's module Worker bindings are the authoritative runtime config. */
 interface WorkerEnvironment {
+  AI?: CloudflareAiBinding;
   N8N_API_BASE_URL?: string;
   N8N_API_KEY?: string;
   N8N_HEALTH_URL?: string;
@@ -83,9 +85,12 @@ function getNodeApi(env: WorkerEnvironment): ReturnType<typeof httpServerHandler
     hermesProbeUrl: integrationProbeUrl(process.env.HERMES_BASE_URL, 'v1/models'),
     hermesProbeHeaders: process.env.HERMES_API_KEY?.trim() ? { authorization: `Bearer ${process.env.HERMES_API_KEY.trim()}` } : undefined,
     n8nProbeUrl: bindingOrProcess(env, 'N8N_HEALTH_URL') || integrationProbeUrl(bindingOrProcess(env, 'N8N_WEBHOOK_BASE_URL'), 'healthz'),
-    marketingImage: process.env.MARKETING_IMAGE_PROVIDER?.trim().toLowerCase() === 'off'
-      ? undefined
-      : new AiHordeMarketingImageClient(),
+    marketingImage: env.AI
+      ? new CloudflareAiImageClient(env.AI)
+      : process.env.MARKETING_IMAGE_PROVIDER?.trim().toLowerCase() === 'off'
+        ? undefined
+        : new AiHordeMarketingImageClient(),
+    marketingImageProvider: env.AI ? 'Cloudflare Workers AI · FLUX.1 schnell' : 'AI Horde (free community queue)',
     // The Worker only proxies authenticated manager chat. Hermes runs separately with
     // the restricted printshop-ai MCP toolset; its server-to-server key is never
     // exposed to browser requests. Manager write actions remain disabled by default.

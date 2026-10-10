@@ -63,7 +63,7 @@ export function MarketingCampaignWorkspace({ lang, campaigns, assets, products, 
         <button className="secondary compact" disabled={busy} onClick={() => void onDuplicate(id)}>{ar ? 'نسخ المنشور' : 'Duplicate post'}</button>
         {asset.order_id == null && ['draft','pending_approval','rejected'].includes(String(asset.status)) && <button className="text-button" disabled={busy} onClick={() => void onDelete(id)}>{ar ? 'حذف المنشور' : 'Delete post'}</button>}
       </div>
-      {imageGeneratingId === id && <small className="subtext">{ar ? 'التوليد المجاني يستخدم قائمة انتظار مشتركة. اترك هذه الصفحة مفتوحة حتى تظهر النتيجة أو رسالة الخطأ.' : 'Free generation uses a shared queue. Keep this page open until the image or an error appears.'}</small>}
+      {imageGeneratingId === id && <small className="subtext">{ar ? 'يعتمد التوليد على الحصة المجانية من Cloudflare. اترك هذه الصفحة مفتوحة حتى تظهر الصورة أو رسالة الخطأ.' : 'Image generation uses the free Cloudflare allowance. Keep this page open until the image or an error appears.'}</small>}
       {asset.image_status === 'failed' && <small className="alert error">{ar ? 'تعذر إنشاء الصورة: ' : 'Image generation failed: '}{String(asset.image_error ?? 'unknown')}</small>}
       {Array.isArray(asset.marketing_posts) && <small>{ar ? 'حالة النشر' : 'Publishing'}: {String((asset.marketing_posts[0] as Row | undefined)?.status ?? 'draft').replaceAll('_', ' ')}</small>}
     </article>;

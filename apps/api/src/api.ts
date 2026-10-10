@@ -138,7 +138,7 @@ export type CommerceVertical = { vertical_key: string; label_en: string; label_a
 export type HermesChatMessage = { role: 'user' | 'assistant'; content: string };
 export type HermesChatClient = { complete(messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>): Promise<{ content: string; model: string; usage?: { prompt_tokens?: number; completion_tokens?: number } }> };
 export type MarketingImageClient = { generate(prompt: string): Promise<{ data: Buffer; mimeType: string; model: string; estimatedCostUsd: number | null }> };
-type Dependencies = { gateway: AuthGateway; pricing: PricingRepository; allowedOrigins?: string[]; allowSameOrigin?: boolean; hermes?: HermesChatClient; hermesProbeUrl?: string; hermesProbeHeaders?: Record<string, string>; n8nProbeUrl?: string; n8nManagement?: { overview(): Promise<N8nOperationsOverview> }; marketingImage?: MarketingImageClient; hermesToolKey?: string; hermesWriteToolsEnabled?: boolean; hermesManagerUserId?: string; n8nWebhookBaseUrl?: string; n8nWebhookSecret?: string; managerEmail?: string };
+type Dependencies = { gateway: AuthGateway; pricing: PricingRepository; allowedOrigins?: string[]; allowSameOrigin?: boolean; hermes?: HermesChatClient; hermesProbeUrl?: string; hermesProbeHeaders?: Record<string, string>; n8nProbeUrl?: string; n8nManagement?: { overview(): Promise<N8nOperationsOverview> }; marketingImage?: MarketingImageClient; marketingImageProvider?: string; hermesToolKey?: string; hermesWriteToolsEnabled?: boolean; hermesManagerUserId?: string; n8nWebhookBaseUrl?: string; n8nWebhookSecret?: string; managerEmail?: string };
 type Actor = { id: string; role: Role };
 
 class UserAiRateLimiter {
@@ -705,7 +705,7 @@ export function createApiServer(deps: Dependencies): Server {
             delete post.design_path;
           }
         }
-        send(response, 200, { generated_at: new Date().toISOString(), month: start.toISOString().slice(0, 7), goal: settings.goals, posts, image_generation_available: Boolean(deps.marketingImage && deps.gateway.uploadMarketingImage), image_provider: deps.marketingImage ? 'AI Horde (free community queue)' : null, model, to_email: deps.managerEmail ?? null });
+        send(response, 200, { generated_at: new Date().toISOString(), month: start.toISOString().slice(0, 7), goal: settings.goals, posts, image_generation_available: Boolean(deps.marketingImage && deps.gateway.uploadMarketingImage), image_provider: deps.marketingImage ? (deps.marketingImageProvider ?? 'AI Horde (free community queue)') : null, model, to_email: deps.managerEmail ?? null });
       } catch (error) { sendError(response, error, requestId); }
       return;
     }
