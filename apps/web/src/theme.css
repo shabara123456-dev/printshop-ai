@@ -641,3 +641,29 @@ tbody tr:hover { background: rgba(255, 255, 255, .025); }
 .public-store.theme-light .public-store-tabs { border-color: #dce2ea; background: rgba(255,255,255,.94); }
 .public-store.theme-light .public-store-tabs button { color: #59677a; }
 .public-store.theme-light .public-store-tabs button:hover, .public-store.theme-light .public-store-tabs button.selected { border-color: #d6e1f2; background: #eaf0fa; color: #254d83; }
+
+/* Customer sign-in/sign-up belongs to the storefront palette, not the
+   manager's saved appearance. Keep the account card and its controls in sync. */
+.public-store.theme-dark .public-auth-wrap { color-scheme: dark; background: var(--store-bg, #101114); color: var(--store-text, #f1f3f6); }
+.public-store.theme-dark .public-auth-wrap .auth-copy h2,
+.public-store.theme-dark .public-auth-wrap .auth-card h2 { color: var(--store-text, #f1f3f6); }
+.public-store.theme-dark .public-auth-wrap .auth-copy p { color: #a5abb5; }
+.public-store.theme-dark .public-auth-wrap .auth-points span { border: 1px solid #30343b; background: #171a1f; color: #c4cad4; }
+.public-store.theme-dark .public-auth-wrap .auth-card { border-color: #30343b; background: var(--store-surface, #171a1f); color: var(--store-text, #f1f3f6); }
+.public-store.theme-dark .public-auth-wrap .auth-card label { color: #c4cad4; }
+.public-store.theme-dark .public-auth-wrap .auth-card input { border-color: #3a404a; background: #101216; color: #f1f3f6; color-scheme: dark; }
+.public-store.theme-dark .public-auth-wrap .auth-card input::placeholder { color: #8a929f; }
+.public-store.theme-dark .public-auth-wrap .auth-card .text-button { color: #a9c4f3; }
+
+.public-store.theme-light .public-auth-wrap { color-scheme: light; background: var(--store-bg, #f5f6f8); color: var(--store-text, #202a38); }
+.public-store.theme-light .public-auth-wrap .auth-copy h2,
+.public-store.theme-light .public-auth-wrap .auth-card h2 { color: var(--store-text, #202a38); }
+.public-store.theme-light .public-auth-wrap .auth-copy p { color: #59677a; }
+.public-store.theme-light .public-auth-wrap .auth-points span { border: 1px solid #dce2ea; background: #e9edf3; color: #425168; }
+.public-store.theme-light .public-auth-wrap .auth-card { border-color: #dce2ea; background: var(--store-surface, #fff); color: var(--store-text, #202a38); }
+.public-store.theme-light .public-auth-wrap .auth-card label { color: #425168; }
+.public-store.theme-light .public-auth-wrap .auth-card input { border-color: #d2d9e3; background: #fff; color: #202a38; color-scheme: light; }
+.public-store.theme-light .public-auth-wrap .auth-card input::placeholder { color: #788598; }
+.public-store.theme-light .public-auth-wrap .auth-card .text-button { color: #315f9e; }
+.public-store.theme-light .public-auth-wrap .auth-card .error { border-color: #efceca; background: #fff0ed; color: #9b332c; }
+.public-store.theme-light .public-auth-wrap .auth-card .notice { border-color: #cfe4d1; background: #edf7ec; color: #2d6b39; }
