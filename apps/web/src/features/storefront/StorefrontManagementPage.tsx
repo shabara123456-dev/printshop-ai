@@ -42,18 +42,22 @@ export function StorefrontManagementPage({ lang, published, revisions, products,
   onUploadAsset: (file: File, area: 'storefront' | 'products') => Promise<string>;
 }) {
   const ar = lang === 'ar';
-  const [config, setConfig] = useState<StorefrontConfig>({ ...emptyConfig, ...(published?.config ?? {}) });
+  const normalizeTheme = (value: Partial<StorefrontConfig>): StorefrontConfig => {
+    const theme = value.theme ?? emptyConfig.theme;
+    return { ...emptyConfig, ...value, ...themes[theme], theme };
+  };
+  const [config, setConfig] = useState<StorefrontConfig>(() => normalizeTheme(published?.config ?? {}));
   const [uploading, setUploading] = useState(false);
-  useEffect(() => { setConfig({ ...emptyConfig, ...(published?.config ?? {}) }); }, [published?.version]);
+  useEffect(() => { setConfig(normalizeTheme(published?.config ?? {})); }, [published?.version]);
   const update = (key: keyof StorefrontConfig) => (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setConfig((current) => ({ ...current, [key]: event.target.value }));
-  const save = (event: FormEvent) => { event.preventDefault(); void onSaveDraft(config); };
+  const save = (event: FormEvent) => { event.preventDefault(); void onSaveDraft(normalizeTheme(config)); };
   const upload = async (key: 'hero_image_path' | 'logo_path', file?: File) => {
     if (!file) return;
     setUploading(true);
     try { const path = await onUploadAsset(file, 'storefront'); setConfig((current) => ({ ...current, [key]: path })); }
     finally { setUploading(false); }
   };
-  const restore = (revision: StorefrontRevision) => { setConfig({ ...emptyConfig, ...revision.config }); void onSaveDraft({ ...emptyConfig, ...revision.config }); };
+  const restore = (revision: StorefrontRevision) => { const restored = normalizeTheme(revision.config); setConfig(restored); void onSaveDraft(restored); };
   const draftRows = revisions.filter((revision) => revision.status === 'draft');
   const previewStyle = {
     '--store-accent': config.accent_color, '--store-bg': config.background_color, '--store-surface': config.surface_color,
@@ -76,8 +80,7 @@ export function StorefrontManagementPage({ lang, published, revisions, products,
         <div className="form-row"><label>{ar ? 'إعلان المتجر · EN' : 'Announcement · English'}<input maxLength={240} value={config.announcement_en} onChange={update('announcement_en')} /></label><label>الإعلان · العربية<input maxLength={240} dir="rtl" value={config.announcement_ar} onChange={update('announcement_ar')} /></label></div>
         <div className="eyebrow">THEME / LAYOUT</div>
         <div className="form-row"><label>{ar ? 'القالب' : 'Theme'}<select value={config.theme} onChange={(event) => { const theme = event.target.value as StorefrontConfig['theme']; setConfig((current) => ({ ...current, theme, ...themes[theme] })); }}><option value="midnight">Midnight · Premium dark</option><option value="paper">Paper · Editorial light</option><option value="studio">Studio · Natural green</option></select></label><label>{ar ? 'التخطيط' : 'Layout'}<select value={config.layout} onChange={update('layout')}><option value="wide">{ar ? 'عريض' : 'Wide'}</option><option value="editorial">{ar ? 'تحريري' : 'Editorial'}</option></select></label></div>
-        <div className="form-row"><label>{ar ? 'الخط' : 'Typography'}<select value={config.font_family} onChange={update('font_family')}><option value="sans">Sans</option><option value="serif">Serif</option></select></label><label>{ar ? 'لون الواجهة' : 'Accent'}<input type="color" value={config.accent_color} onChange={update('accent_color')} /></label></div>
-        <div className="form-row storefront-color-row">{([['background_color', ar ? 'الخلفية' : 'Background'],['surface_color', ar ? 'البطاقات' : 'Cards'],['text_color', ar ? 'النص' : 'Text'],['button_color', ar ? 'الزر' : 'Button']] as const).map(([key,label]) => <label key={key}>{label}<input type="color" value={config[key]} onChange={update(key)} /></label>)}</div>
+        <div className="form-row"><label>{ar ? 'الخط' : 'Typography'}<select value={config.font_family} onChange={update('font_family')}><option value="sans">Sans</option><option value="serif">Serif</option></select></label><p className="subtext storefront-palette-note">{ar ? 'الألوان مرتبطة بالقالب لضمان وضوح النصوص والأزرار.' : 'Colors are locked to the selected theme so text and buttons stay readable.'}</p></div>
         <div className="form-row"><label>{ar ? 'المنتجات المميزة' : 'Featured products'}<select multiple value={config.featured_product_ids} onChange={(event) => setConfig((current) => ({ ...current, featured_product_ids: Array.from(event.currentTarget.selectedOptions, (option) => option.value) }))}>{products.map((product) => <option value={product.id} key={product.id}>{product.name}{product.sku ? ` · ${product.sku}` : ''}</option>)}</select><small className="subtext">{ar ? 'حدد حتى 12 منتجاً.' : 'Choose up to 12 products.'}</small></label><label>{ar ? 'الفئات المميزة' : 'Featured categories'}<select multiple value={config.featured_categories} onChange={(event) => setConfig((current) => ({ ...current, featured_categories: Array.from(event.currentTarget.selectedOptions, (option) => option.value) }))}>{categories.map((category) => <option value={category} key={category}>{category.replaceAll('_',' ')}</option>)}</select></label></div>
         <button className="primary" disabled={busy || uploading}>{busy || uploading ? (ar ? 'جارٍ الحفظ…' : 'Saving…') : (ar ? 'حفظ المسودة' : 'Save draft')}</button>
       </form>

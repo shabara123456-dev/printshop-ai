@@ -292,8 +292,9 @@ function storefrontConfig(value: unknown): StorefrontConfig {
   const row = value as Record<string, unknown>;
   const allowed = new Set(['store_name','tagline','hero_eyebrow','hero_title_en','hero_title_ar','hero_description_en','hero_description_ar','announcement_en','announcement_ar','accent_color','featured_product_ids','theme','background_color','surface_color','text_color','button_color','font_family','layout','hero_image_path','logo_path','logo_placement','cta_label_en','cta_label_ar','featured_categories']);
   if (Object.keys(row).some((key) => !allowed.has(key))) throw new AppError('INVALID_REQUEST', 400, 'config contains unsupported storefront fields.');
-  const color = requiredText(row.accent_color, 'accent_color', 7);
-  if (!/^#[0-9a-f]{6}$/i.test(color)) throw new AppError('INVALID_REQUEST', 400, 'accent_color must be a six-digit hex color.');
+  // Keep storefront colors as approved, readable palettes. A manager or AI
+  // action can choose a theme, but cannot combine a light foreground with a
+  // dark background (or vice versa) and make the storefront unreadable.
   const productIds = row.featured_product_ids ?? [];
   if (!Array.isArray(productIds) || productIds.length > 12) throw new AppError('INVALID_REQUEST', 400, 'featured_product_ids must contain no more than 12 product IDs.');
   const ids = productIds.map((id, index) => uuid(id, `featured_product_ids[${index}]`));
@@ -303,16 +304,17 @@ function storefrontConfig(value: unknown): StorefrontConfig {
     if (typeof text !== 'string' || text.length > max) throw new AppError('INVALID_REQUEST', 400, `${field} must be a string no longer than ${max} characters.`);
     return text.trim();
   };
-  const colorField = (field: string, fallback: string) => {
-    const candidate = row[field] ?? fallback;
-    if (typeof candidate !== 'string' || !/^#[0-9a-f]{6}$/i.test(candidate)) throw new AppError('INVALID_REQUEST', 400, `${field} must be a six-digit hex color.`);
-    return candidate.toLowerCase();
-  };
   const choice = <T extends string>(field: string, values: readonly T[], fallback: T): T => {
     const candidate = row[field] ?? fallback;
     if (typeof candidate !== 'string' || !values.includes(candidate as T)) throw new AppError('INVALID_REQUEST', 400, `${field} has an unsupported value.`);
     return candidate as T;
   };
+  const theme = choice('theme', ['midnight','paper','studio'] as const, 'midnight');
+  const palette = {
+    midnight: { background_color: '#101114', surface_color: '#191b20', text_color: '#f5f5f5', accent_color: '#6f9fee', button_color: '#6f9fee' },
+    paper: { background_color: '#f3f0e8', surface_color: '#fffdf8', text_color: '#21211f', accent_color: '#9a6549', button_color: '#252522' },
+    studio: { background_color: '#171c1a', surface_color: '#222a26', text_color: '#f2f0e8', accent_color: '#9ab991', button_color: '#9ab991' }
+  }[theme];
   const assetPath = (field: string) => {
     const candidate = row[field] ?? '';
     if (typeof candidate !== 'string' || candidate.length > 512 || (candidate && !candidate.startsWith('storefront/'))) throw new AppError('INVALID_REQUEST', 400, `${field} must be a storefront asset path.`);
@@ -330,11 +332,9 @@ function storefrontConfig(value: unknown): StorefrontConfig {
     hero_description_ar: requiredText(row.hero_description_ar, 'hero_description_ar', 600),
     announcement_en: optionalText('announcement_en', 240),
     announcement_ar: optionalText('announcement_ar', 240),
-    accent_color: color.toLowerCase(),
+    ...palette,
     featured_product_ids: ids,
-    theme: choice('theme', ['midnight','paper','studio'] as const, 'midnight'),
-    background_color: colorField('background_color', '#101114'), surface_color: colorField('surface_color', '#191b20'),
-    text_color: colorField('text_color', '#f5f5f5'), button_color: colorField('button_color', color.toLowerCase()),
+    theme,
     font_family: choice('font_family', ['sans','serif'] as const, 'sans'), layout: choice('layout', ['wide','editorial'] as const, 'wide'),
     hero_image_path: assetPath('hero_image_path'), logo_path: assetPath('logo_path'), logo_placement: choice('logo_placement', ['left','center','right'] as const, 'left'),
     cta_label_en: optionalText('cta_label_en', 80) || 'Explore the store', cta_label_ar: optionalText('cta_label_ar', 80) || 'اكتشف المتجر',
