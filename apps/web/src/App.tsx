@@ -26,6 +26,20 @@ type Row = Record<string, unknown>;
 type Language = 'en' | 'ar';
 type UiTheme = 'dark' | 'light';
 type Tab = 'dashboard' | 'analytics' | 'products' | 'storefront' | 'automations' | 'catalog' | 'buy' | 'quotes' | 'orders' | 'customers' | 'design' | 'inventory' | 'production' | 'marketing' | 'ai';
+const tabsByRole: Record<string, readonly Tab[]> = {
+  manager: ['dashboard', 'analytics', 'products', 'storefront', 'automations', 'orders', 'customers', 'marketing', 'ai', 'inventory', 'quotes', 'design', 'production', 'catalog'],
+  admin: ['dashboard', 'analytics', 'products', 'storefront', 'automations', 'orders', 'customers', 'marketing', 'ai', 'inventory', 'quotes', 'design', 'production', 'catalog'],
+  production: ['orders', 'inventory', 'production', 'design'],
+  marketing: ['marketing'],
+  sales: ['catalog', 'orders', 'customers', 'quotes'],
+  customer: ['catalog', 'orders']
+};
+function getSavedTab(role: string, userId: string): Tab | null {
+  try {
+    const saved = localStorage.getItem(`inkora-last-tab:${userId}`) as Tab | null;
+    return saved && saved !== 'buy' && tabsByRole[role]?.includes(saved) ? saved : null;
+  } catch { return null; }
+}
 type AiMessage = { role: 'user' | 'assistant'; content: string };
 type MarketingDraftEdit = { caption: string; scheduledAt: string; platform: string; productId: string };
 const asLocalDateTime = (value: unknown) => {
@@ -262,6 +276,11 @@ export function App() {
     try { localStorage.setItem('inkora-ui-theme', uiTheme); } catch { /* keep the selected theme for this session */ }
   }, [uiTheme]);
 
+  useEffect(() => {
+    if (!session?.user.id || !profile?.user_id || session.user.id !== profile.user_id || tab === 'buy') return;
+    try { localStorage.setItem(`inkora-last-tab:${profile.user_id}`, tab); } catch { /* Keep tab navigation working if storage is unavailable. */ }
+  }, [tab, session?.user.id, profile?.user_id]);
+
   function selectUiTheme(value: UiTheme) {
     setUiTheme(value);
     setThemePromptOpen(false);
@@ -318,7 +337,8 @@ export function App() {
     // session's profile or resurrect a transient authorization error.
     if (loadId !== profileLoadId.current) return;
     setProfile(nextProfile);
-    setTab(['manager', 'admin'].includes(nextProfile.role) ? 'dashboard' : nextProfile.role === 'customer' && pendingBuyAfterAuth.current ? 'buy' : 'catalog');
+    const defaultTab: Tab = ['manager', 'admin'].includes(nextProfile.role) ? 'dashboard' : nextProfile.role === 'production' ? 'orders' : nextProfile.role === 'marketing' ? 'marketing' : 'catalog';
+    setTab(nextProfile.role === 'customer' && pendingBuyAfterAuth.current ? 'buy' : getSavedTab(nextProfile.role, activeSession.user.id) ?? defaultTab);
     pendingBuyAfterAuth.current = false;
   }
 
