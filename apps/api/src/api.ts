@@ -121,6 +121,7 @@ export type AuthGateway = {
   saveMarketingPlanSettings?(actorId: string, settings: MarketingPlanSettings): Promise<void>;
   recordAuditLog?(input: { userId: string; action: string; entityType: string; entityId: string | null; metadata: Record<string, unknown> }): Promise<void>;
   createHermesActionProposal?(input: { id: string; managerId: string; action: string; arguments: Record<string, unknown> }): Promise<string>;
+  getHermesActionProposal?(id: string, managerId: string): Promise<{ action_name: string; arguments: Record<string, unknown> } | null>;
   approveHermesActionProposal?(id: string, managerId: string): Promise<boolean>;
   claimHermesActionProposal?(input: { id: string; managerId: string; action: string; arguments: Record<string, unknown> }): Promise<boolean>;
   finishHermesActionProposal?(input: { id: string; status: 'completed' | 'failed'; result: Record<string, unknown> | null; errorCode?: string }): Promise<void>;
@@ -757,7 +758,7 @@ export function createApiServer(deps: Dependencies): Server {
           ? body.arguments as Record<string, unknown>
           : {};
 
-        const writeTools = ['create_material', 'record_material_receipt', 'create_product_draft', 'prepare_storefront_update', 'update_product_details', 'update_order_status', 'update_production_status'];
+        const writeTools = ['create_material', 'record_material_receipt', 'create_product_draft', 'prepare_storefront_update', 'update_product_details', 'update_order_status', 'update_production_status', 'create_marketing_campaign'];
         if (writeTools.includes(name)) {
           if (!deps.hermesWriteToolsEnabled) throw new AppError('HERMES_ACTIONS_DISABLED', 503, 'Manager write actions are disabled in server configuration.');
           const reason = requiredText(args.reason, 'reason', 500);
@@ -783,6 +784,50 @@ export function createApiServer(deps: Dependencies): Server {
             requestedArgs = { sku, name: productName, category, base_unit: baseUnit, vertical_key: verticalKey, description, attributes, requires_design: args.requires_design, requires_size: args.requires_size, reason };
           } else if (name === 'prepare_storefront_update') {
             requestedArgs = { config: storefrontConfig(args.config), reason };
+          } else if (name === 'create_marketing_campaign') {
+            const campaignName = requiredText(args.name, 'name', 160);
+            const month = requiredText(args.month, 'month', 7);
+            if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new AppError('INVALID_REQUEST', 400, 'month must use YYYY-MM format.');
+            const cairoParts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit' }).formatToParts(new Date());
+            const currentCairoMonth = `${cairoParts.find((part) => part.type === 'year')?.value}-${cairoParts.find((part) => part.type === 'month')?.value}`;
+            if (month < currentCairoMonth) throw new AppError('INVALID_REQUEST', 400, 'Choose the current Cairo month or a future month.');
+            const objective = requiredText(args.objective, 'objective', 1000);
+            const audience = requiredText(args.audience, 'audience', 500);
+            const tone = requiredText(args.tone, 'tone', 300);
+            if (args.language !== 'en' && args.language !== 'ar') throw new AppError('INVALID_REQUEST', 400, 'language must be en or ar.');
+            const frequency = requiredText(args.frequency, 'frequency', 20);
+            if (!['daily', 'weekly', 'monthly', 'custom'].includes(frequency)) throw new AppError('INVALID_REQUEST', 400, 'Unsupported posting frequency.');
+            const allowedPlatforms = ['instagram', 'facebook', 'linkedin', 'x', 'general'];
+            if (!Array.isArray(args.platforms) || args.platforms.length < 1 || args.platforms.length > 5 || args.platforms.some((value) => typeof value !== 'string' || !allowedPlatforms.includes(value))) throw new AppError('INVALID_REQUEST', 400, 'Choose supported campaign platforms.');
+            const platforms = [...new Set(args.platforms as string[])];
+            if (!Array.isArray(args.preferred_times) || args.preferred_times.length < 1 || args.preferred_times.length > 5 || args.preferred_times.some((value) => typeof value !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(value))) throw new AppError('INVALID_REQUEST', 400, 'preferred_times must contain valid Cairo times.');
+            if (!Array.isArray(args.product_ids) || args.product_ids.length > 20) throw new AppError('INVALID_REQUEST', 400, 'product_ids must contain up to 20 product IDs.');
+            const productIds = [...new Set(args.product_ids.map((value, index) => uuid(value, `product_ids[${index}]`)))];
+            const catalog = (await deps.gateway.listProducts('', true)).filter((value) => value && typeof value === 'object') as Array<Record<string, unknown>>;
+            const activeProducts = catalog.filter((product) => product.active !== false && typeof product.id === 'string');
+            if (productIds.some((id) => !activeProducts.some((product) => product.id === id))) throw new AppError('INVALID_PRODUCT', 422, 'Campaign products must exist and be active.');
+            if (!Array.isArray(args.posts) || args.posts.length < 1 || args.posts.length > 20) throw new AppError('INVALID_REQUEST', 400, 'Campaign must contain 1 to 20 posts.');
+            const postInput = args.posts as Array<Record<string, unknown>>;
+            const daysInMonth = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
+            const posts = postInput.map((post, index) => {
+              const caption = requiredText(post.caption, `posts[${index}].caption`, 3000);
+              if (!Array.isArray(post.hashtags) || post.hashtags.length > 8 || post.hashtags.some((tag) => typeof tag !== 'string')) throw new AppError('INVALID_REQUEST', 400, `posts[${index}].hashtags must be a list of up to eight tags.`);
+              const hashtags = (post.hashtags as string[]).map((tag) => `#${tag.trim().replace(/^#+/, '').replace(/\s+/g, '')}`).filter((tag) => tag.length > 1);
+              const postPlatform = requiredText(post.platform, `posts[${index}].platform`, 30);
+              if (!platforms.includes(postPlatform)) throw new AppError('INVALID_REQUEST', 400, `posts[${index}].platform must be one of the selected platforms.`);
+              const theme = typeof post.theme === 'string' && ['product_showcase', 'promotion', 'educational', 'seasonal', 'brand', 'engagement', 'new_product'].includes(post.theme) ? post.theme : 'product_showcase';
+              const productId = post.product_id == null ? null : uuid(post.product_id, `posts[${index}].product_id`);
+              if (productId && (!activeProducts.some((product) => product.id === productId) || (productIds.length > 0 && !productIds.includes(productId)))) throw new AppError('INVALID_PRODUCT', 422, `posts[${index}] references a product outside this campaign.`);
+              const day = frequency === 'daily' ? Math.min(index + 1, daysInMonth) : frequency === 'weekly' && postInput.length <= 4 ? Math.min(1 + index * 7, daysInMonth) : Math.max(1, Math.floor(((index + 1) * daysInMonth) / (postInput.length + 1)));
+              const preferredTime = (args.preferred_times as string[])[index % (args.preferred_times as string[]).length];
+              const [hour, minute] = preferredTime.split(':').map(Number);
+              let timestamp = Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, day, hour, minute);
+              const cairoTime = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(timestamp));
+              const part = (type: string) => Number(cairoTime.find((entry) => entry.type === type)?.value ?? 0);
+              timestamp += Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, day, hour, minute) - Date.UTC(part('year'), part('month') - 1, part('day'), part('hour'), part('minute'));
+              return { caption: `${caption}${hashtags.length ? `\n\n${hashtags.join(' ')}` : ''}`, theme, scheduled_at: new Date(timestamp).toISOString(), platform: postPlatform, product_id: productId, slot: index + 1 };
+            });
+            requestedArgs = { name: campaignName, month, objective, audience, language: args.language, tone, frequency, preferred_times: [...args.preferred_times], platforms, product_ids: productIds, posts, reason };
           }
           const approvalId = typeof args.action_id === 'string' ? uuid(args.action_id, 'action_id') : null;
           if (!approvalId) {
@@ -864,6 +909,17 @@ export function createApiServer(deps: Dependencies): Server {
             if (args.status !== 'cancelled' && args.status !== 'delivered') throw new AppError('INVALID_REQUEST', 400, 'status must be cancelled or delivered.');
             await deps.gateway.updateOrderStatus(entityId, args.status);
             entityType = 'order'; actionResult = { order_id: entityId, status: args.status };
+          } else if (name === 'create_marketing_campaign') {
+            if (!deps.gateway.createMarketingCampaignWithPosts) throw new AppError('MARKETING_UNAVAILABLE', 503, 'Marketing campaign storage is not configured.');
+            const campaign = requestedArgs as { name: string; month: string; objective: string; audience: string; language: 'en' | 'ar'; tone: string; frequency: string; preferred_times: string[]; platforms: string[]; product_ids: string[]; posts: Array<Record<string, unknown>> };
+            const result = await deps.gateway.createMarketingCampaignWithPosts({
+              campaign: { name: campaign.name, month: campaign.month, objective: campaign.objective, target_audience: campaign.audience, language: campaign.language, tone: campaign.tone, posting_frequency: campaign.frequency, preferred_times: campaign.preferred_times, platforms: campaign.platforms, product_ids: campaign.product_ids, requested_posts: campaign.posts.length },
+              posts: campaign.posts,
+              createdBy: managerId
+            });
+            entityId = result.campaignId;
+            entityType = 'marketing_campaign';
+            actionResult = { campaign_id: result.campaignId, asset_ids: result.assetIds, requested_posts: campaign.posts.length, created_posts: result.assetIds.length, status: 'draft', requires_manager_review: true, published: false, next_step: 'Open Marketing to generate images and review each post. Nothing was published.' };
           } else {
             entityId = uuid(args.production_job_id, 'production_job_id');
             const status = args.status;
@@ -1348,9 +1404,102 @@ export function createApiServer(deps: Dependencies): Server {
         const precedingAssistant = messages.at(-2);
         if (confirmation && precedingAssistant?.role === 'assistant' && deps.gateway.approveHermesActionProposal) {
           const proposedId = confirmation[1].toLowerCase();
-          if (precedingAssistant.content.toLowerCase().includes(proposedId)
-            && await deps.gateway.approveHermesActionProposal(proposedId, actor.id)) {
+          if (precedingAssistant.content.toLowerCase().includes(proposedId)) {
+            const proposal = await deps.gateway.getHermesActionProposal?.(proposedId, actor.id);
+            const approved = await deps.gateway.approveHermesActionProposal(proposedId, actor.id);
+            if (!approved) throw new AppError('MANAGER_CONFIRMATION_INVALID', 409, 'This proposal is expired, already used, or does not belong to this manager. Ask Hermes to prepare it again.');
             console.log(JSON.stringify({ level: 'info', event: 'hermes.action.confirmed', request_id: requestId, action_id: proposedId }));
+            if (proposal?.action_name === 'create_marketing_campaign') {
+              if (!deps.gateway.claimHermesActionProposal || !deps.gateway.finishHermesActionProposal || !deps.gateway.createMarketingCampaignWithPosts) throw new AppError('MARKETING_UNAVAILABLE', 503, 'The confirmed campaign cannot be stored because campaign services are unavailable.');
+              const campaign = proposal.arguments as { name: string; month: string; objective: string; audience: string; language: 'en' | 'ar'; tone: string; frequency: string; preferred_times: string[]; platforms: string[]; product_ids: string[]; posts: Array<Record<string, unknown>>; reason: string };
+              if (!await deps.gateway.claimHermesActionProposal({ id: proposedId, managerId: actor.id, action: 'create_marketing_campaign', arguments: proposal.arguments })) throw new AppError('MANAGER_CONFIRMATION_INVALID', 409, 'The confirmed campaign no longer matches its approved proposal. Prepare it again.');
+              try {
+                const saved = await deps.gateway.createMarketingCampaignWithPosts({
+                  campaign: { name: campaign.name, month: campaign.month, objective: campaign.objective, target_audience: campaign.audience, language: campaign.language, tone: campaign.tone, posting_frequency: campaign.frequency, preferred_times: campaign.preferred_times, platforms: campaign.platforms, product_ids: campaign.product_ids, requested_posts: campaign.posts.length },
+                  posts: campaign.posts,
+                  createdBy: actor.id
+                });
+                const result = { campaign_id: saved.campaignId, asset_ids: saved.assetIds, requested_posts: campaign.posts.length, created_posts: saved.assetIds.length, status: 'draft', requires_manager_review: true, published: false };
+                await deps.gateway.finishHermesActionProposal({ id: proposedId, status: 'completed', result });
+                const reply = `Campaign created and saved as a draft: ${campaign.name}. ${saved.assetIds.length} post drafts were saved for ${campaign.month}. Nothing was published. Open Marketing to review the posts, edit their schedules, and generate or upload images.`;
+                send(response, 200, { reply, model: 'backend-confirmed-action', usage: null, latency_ms: 0, action_result: result });
+                return;
+              } catch (error) {
+                try { await deps.gateway.finishHermesActionProposal({ id: proposedId, status: 'failed', result: null, errorCode: error instanceof AppError ? error.code : 'CAMPAIGN_CREATE_FAILED' }); }
+                catch (auditError) { console.error(JSON.stringify({ level: 'error', event: 'hermes.action.finalize_failed', action: 'create_marketing_campaign', action_id: proposedId, error_code: auditError instanceof AppError ? auditError.code : 'FINALIZE_FAILED' })); }
+                throw error;
+              }
+            }
+          }
+        }
+        const campaignIntent = /\b(create|make|prepare|plan|generate|build|launch|schedule)\b.{0,70}\b(campaign|marketing|social media|posts?)\b|\b(campaign|marketing campaign|social media campaign)\b.{0,70}\b(for|about|with|this|next|monthly|week|month)\b|اعمل.{0,45}(حملة|منشورات|بوستات)|جهز.{0,45}(حملة|منشورات|بوستات)/i.test(question);
+        if (!confirmation && campaignIntent) {
+          if (!deps.gateway.createHermesActionProposal || !deps.gateway.listProducts) throw new AppError('MARKETING_UNAVAILABLE', 503, 'Campaign proposals are not configured on this server.');
+          const start = Date.now();
+          try {
+            const cairoParts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit' }).formatToParts(new Date());
+            const currentMonth = `${cairoParts.find((part) => part.type === 'year')?.value}-${cairoParts.find((part) => part.type === 'month')?.value}`;
+            const month = question.match(/\b(20\d{2}-(?:0[1-9]|1[0-2]))\b/)?.[1] ?? currentMonth;
+            if (month < currentMonth) throw new AppError('INVALID_REQUEST', 400, 'Choose the current Cairo month or a future month for the campaign.');
+            const countMatch = question.match(/\b(\d{1,2})\s*(?:posts?|social posts?|بوستات|منشورات)\b/i);
+            const requestedCount = countMatch ? Number(countMatch[1]) : 4;
+            if (!Number.isInteger(requestedCount) || requestedCount < 1 || requestedCount > 20) throw new AppError('INVALID_REQUEST', 400, 'Campaigns support 1 to 20 posts.');
+            const postCount = requestedCount;
+            const platforms = ['instagram','facebook','linkedin','x'].filter((platform) => new RegExp(`\\b${platform}\\b`, 'i').test(question));
+            const selectedPlatforms = platforms.length ? platforms : ['instagram'];
+            const frequency = /\bdaily\b|يومي/i.test(question) ? 'daily' : /\bweekly\b|أسبوعي/i.test(question) ? 'weekly' : /\bmonthly\b|شهري/i.test(question) ? 'monthly' : 'weekly';
+            const preferredTime = question.match(/\b(?:at\s*)?([01]\d|2[0-3]):([0-5]\d)\b/)?.[0]?.replace(/^at\s*/i, '') ?? '10:00';
+            const language = arabic ? 'ar' : 'en';
+            const catalog = (await deps.gateway.listProducts('', true)).filter((item) => item && typeof item === 'object') as Array<Record<string, unknown>>;
+            const active = catalog.filter((item) => item.active !== false && typeof item.id === 'string').slice(0, 20);
+            const mentioned = active.filter((item) => typeof item.name === 'string' && question.toLocaleLowerCase().includes(item.name.toLocaleLowerCase()));
+            const campaignProducts = mentioned.length ? mentioned : active;
+            const productIds = mentioned.map((item) => String(item.id));
+            const llm = await deps.hermes.complete([
+              { role: 'system', content: `Prepare exactly ${postCount} distinct campaign post drafts in ${language === 'ar' ? 'Egyptian Arabic' : 'English'}. Return only JSON: {"name":"...","objective":"...","audience":"...","tone":"...","posts":[{"caption":"...","hashtags":["#tag"],"theme":"product_showcase"}]}. Each post needs 3 to 5 truthful hashtags. Use only supplied product facts. Do not invent prices, discounts, stock, claims, or customer stories. Draft copy only; do not claim images were generated or posts published.` },
+              { role: 'user', content: JSON.stringify({ request: question, month, products: campaignProducts.map(({ id, name, category, description }) => ({ id, name, category, description })) }) }
+            ]);
+            const raw = requiredText(llm.content, 'campaign draft', 30000).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+            let generated: unknown;
+            try { generated = JSON.parse(raw); } catch { throw new AppError('AI_INVALID_RESPONSE', 502, 'Hermes returned an invalid campaign draft. No campaign was saved.'); }
+            if (!generated || typeof generated !== 'object' || Array.isArray(generated)) throw new AppError('AI_INVALID_RESPONSE', 502, 'Hermes returned an invalid campaign draft. No campaign was saved.');
+            const draft = generated as Record<string, unknown>;
+            if (!Array.isArray(draft.posts) || draft.posts.length !== postCount) throw new AppError('AI_INVALID_RESPONSE', 502, `Hermes must return exactly ${postCount} posts. No campaign was saved.`);
+            const daysInMonth = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
+            const posts = draft.posts.map((value, index) => {
+              if (!value || typeof value !== 'object' || Array.isArray(value)) throw new AppError('AI_INVALID_RESPONSE', 502, `Hermes returned an invalid post ${index + 1}.`);
+              const post = value as Record<string, unknown>;
+              const caption = requiredText(post.caption, `posts[${index}].caption`, 3000);
+              const tags = Array.isArray(post.hashtags) ? post.hashtags.filter((tag): tag is string => typeof tag === 'string').slice(0, 8).map((tag) => `#${tag.trim().replace(/^#+/, '').replace(/\s+/g, '')}`).filter((tag) => tag.length > 1) : [];
+              const day = frequency === 'daily' ? Math.min(index + 1, daysInMonth) : Math.max(1, Math.floor(((index + 1) * daysInMonth) / (postCount + 1)));
+              const [hour, minute] = preferredTime.split(':').map(Number);
+              let time = Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, day, hour, minute);
+              const cairo = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(time));
+              const part = (type: string) => Number(cairo.find((entry) => entry.type === type)?.value ?? 0);
+              time += Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, day, hour, minute) - Date.UTC(part('year'), part('month') - 1, part('day'), part('hour'), part('minute'));
+              const platform = selectedPlatforms[index % selectedPlatforms.length];
+              const product = campaignProducts.length ? campaignProducts[index % campaignProducts.length] : null;
+              const theme = typeof post.theme === 'string' && ['product_showcase','promotion','educational','seasonal','brand','engagement','new_product'].includes(post.theme) ? post.theme : 'product_showcase';
+              return { caption: `${caption}${tags.length ? `\n\n${tags.join(' ')}` : ''}`, hashtags: tags, platform, product_id: product ? String(product.id) : null, theme, scheduled_at: new Date(time).toISOString(), slot: index + 1 };
+            });
+            const args = {
+              name: requiredText(draft.name, 'campaign name', 160), month,
+              objective: requiredText(draft.objective, 'campaign objective', 1000),
+              audience: requiredText(draft.audience, 'campaign audience', 500), language,
+              tone: requiredText(draft.tone, 'campaign tone', 300), frequency,
+              preferred_times: [preferredTime], platforms: selectedPlatforms, product_ids: productIds, posts,
+              reason: 'Manager requested a marketing campaign in authenticated Hermes chat.'
+            };
+            const actionId = randomUUID();
+            const expiresAt = await deps.gateway.createHermesActionProposal({ id: actionId, managerId: actor.id, action: 'create_marketing_campaign', arguments: args });
+            try { await deps.gateway.recordAiRun({ feature: 'manager_campaign_proposal', model: llm.model, inputTokens: llm.usage?.prompt_tokens ?? 0, outputTokens: llm.usage?.completion_tokens ?? 0, latencyMs: Date.now() - start, success: true }); } catch { /* A proposal remains available if usage logging fails. */ }
+            const productSummary = campaignProducts.length ? campaignProducts.map((item) => String(item.name)).join(', ') : 'general store awareness';
+            const reply = `Campaign proposal ready: ${args.name}\n${posts.length} draft posts for ${month}, on ${selectedPlatforms.join(', ')}. Products: ${productSummary}. Posts will be saved as drafts; no image generation or publishing is claimed.\n\nReview and click Confirm & execute, or reply exactly: I CONFIRM THIS CHANGE ${actionId}\nProposal expires at ${expiresAt}.`;
+            send(response, 200, { reply, model: llm.model, usage: llm.usage ?? null, latency_ms: Date.now() - start, action_id: actionId, status: 'confirmation_required' });
+            return;
+          } catch (error) {
+            try { await deps.gateway.recordAiRun({ feature: 'manager_campaign_proposal', model: null, inputTokens: 0, outputTokens: 0, latencyMs: Date.now() - start, success: false }); } catch { /* Preserve the proposal error. */ }
+            throw error;
           }
         }
         const startedAt = Date.now();

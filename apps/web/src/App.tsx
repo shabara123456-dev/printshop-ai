@@ -24,6 +24,7 @@ type Profile = { user_id: string; role: string; customer_id: string | null };
 type Customer = { id: string; name: string; company_name?: string | null; email?: string | null; phone?: string | null };
 type Row = Record<string, unknown>;
 type Language = 'en' | 'ar';
+type UiTheme = 'dark' | 'light';
 type Tab = 'dashboard' | 'analytics' | 'products' | 'storefront' | 'automations' | 'catalog' | 'buy' | 'quotes' | 'orders' | 'customers' | 'design' | 'inventory' | 'production' | 'marketing' | 'ai';
 type AiMessage = { role: 'user' | 'assistant'; content: string };
 type MarketingDraftEdit = { caption: string; scheduledAt: string; platform: string; productId: string };
@@ -187,6 +188,14 @@ function OrderNextAction({ order, busy, lang, onJob, onOrder }: { order: Row; bu
 
 export function App() {
   const [lang, setLang] = useState<Language>('en');
+  const [uiTheme, setUiTheme] = useState<UiTheme>(() => {
+    try { return localStorage.getItem('inkora-ui-theme') === 'light' ? 'light' : 'dark'; }
+    catch { return 'dark'; }
+  });
+  const [themePromptOpen, setThemePromptOpen] = useState(() => {
+    try { return !localStorage.getItem('inkora-ui-theme'); }
+    catch { return false; }
+  });
   const t = words[lang];
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -242,6 +251,17 @@ export function App() {
   const [aiInput, setAiInput] = useState('');
   const profileLoadId = useRef(0);
   const sessionRefresh = useRef<Promise<Session | null> | null>(null);
+
+  useEffect(() => {
+    document.documentElement.dataset.inkoraTheme = uiTheme;
+    try { localStorage.setItem('inkora-ui-theme', uiTheme); } catch { /* keep the selected theme for this session */ }
+  }, [uiTheme]);
+
+  function selectUiTheme(value: UiTheme) {
+    setUiTheme(value);
+    setThemePromptOpen(false);
+    try { localStorage.setItem('inkora-ui-theme', value); } catch { /* Theme still applies for this session. */ }
+  }
 
   const isStaff = ['manager', 'sales', 'production', 'admin'].includes(profile?.role ?? '');
   const isManager = ['manager', 'admin'].includes(profile?.role ?? '');
@@ -659,18 +679,29 @@ export function App() {
     setPrivateFileLinks((links) => ({ ...links, [path]: data.signedUrl }));
   }
 
-  async function sendAiMessage(event: FormEvent) {
-    event.preventDefault();
-    const content = aiInput.trim();
+  async function submitAiContent(content: string) {
     if (!content || busy) return;
     // Keep the manager session lightweight; the live business tools retrieve current facts.
     const messages: AiMessage[] = [...aiMessages, { role: 'user' as const, content }].slice(-8);
-    setAiMessages(messages); setAiInput(''); setBusy(true); setError('');
+    setAiMessages(messages); setAiInput(''); setBusy(true); setError(''); setNotice('');
     try {
       const result = await api<{ reply: string }>('/api/ai/chat', { method: 'POST', body: JSON.stringify({ messages }) });
       setAiMessages([...messages, { role: 'assistant' as const, content: result.reply }].slice(-8));
+      if (/^I CONFIRM THIS CHANGE [0-9a-f-]{36}$/i.test(content)) {
+        const [assetResult, campaignResult] = await Promise.all([
+          api<{ assets: Row[] }>('/api/marketing/assets'),
+          api<{ campaigns: Row[] }>('/api/manager/marketing/campaigns')
+        ]);
+        setMarketingAssets(assetResult.assets ?? []);
+        setMarketingCampaigns(campaignResult.campaigns ?? []);
+      }
     } catch (cause) { setError(cause instanceof Error ? cause.message : t.apiError); }
     finally { setBusy(false); }
+  }
+
+  async function sendAiMessage(event: FormEvent) {
+    event.preventDefault();
+    await submitAiContent(aiInput.trim());
   }
 
   async function createProduct(event: FormEvent<HTMLFormElement>) {
@@ -1059,8 +1090,9 @@ export function App() {
   const shell = <>
       <header className={`topbar storefront-logo-${storefront.logo_placement ?? 'left'}`}>
       <a className="brand" href="#home"><span className="brand-mark">{storefront.logo_path ? <img src={storeAssetUrl(storefront.logo_path)} alt="" /> : <img src="/inkora-mark.svg" alt="" />}</span><span>{storefront.store_name || t.brand}<small>{storefront.tagline || t.tagline}</small></span></a>
-      <div className="top-actions"><button className="language" onClick={() => setLang(lang === 'en' ? 'ar' : 'en')}>{t.language}</button>{session && <><span className="role-chip">{t.role}: {profile?.role ?? '…'}</span><button className="text-button" onClick={signOut}>{t.signOut}</button></>}</div>
+      <div className="top-actions"><button className="theme-toggle" onClick={() => selectUiTheme(uiTheme === 'dark' ? 'light' : 'dark')} aria-label={lang === 'ar' ? 'تغيير مظهر الموقع' : 'Toggle site appearance'}>{uiTheme === 'dark' ? '☀ Light' : '◐ Dark'}</button><button className="language" onClick={() => setLang(lang === 'en' ? 'ar' : 'en')}>{t.language}</button>{session && <><span className="role-chip">{t.role}: {profile?.role ?? '…'}</span><button className="text-button" onClick={signOut}>{t.signOut}</button></>}</div>
     </header>
+    {themePromptOpen && <div className="theme-chooser-backdrop" role="presentation"><section className="theme-chooser" role="dialog" aria-modal="true" aria-labelledby="theme-chooser-title"><span className="eyebrow">INKORA / APPEARANCE</span><h2 id="theme-chooser-title">{lang === 'ar' ? 'اختر مظهر الموقع' : 'Choose your appearance'}</h2><p>{lang === 'ar' ? 'يمكنك تغييره لاحقاً من الشريط العلوي.' : 'You can change this any time from the top bar.'}</p><div className="theme-chooser-options"><button className="theme-choice dark-choice" onClick={() => selectUiTheme('dark')}><span className="theme-swatch"/>Dark<span>Easy on the eyes</span></button><button className="theme-choice light-choice" onClick={() => selectUiTheme('light')}><span className="theme-swatch"/>Light<span>Bright and clear</span></button></div></section></div>}
   </>;
 
   if (!session) return <main dir={lang === 'ar' ? 'rtl' : 'ltr'} className={`public-store theme-${storefront.theme ?? 'midnight'} layout-${storefront.layout ?? 'wide'} font-${storefront.font_family ?? 'sans'}`} style={{ '--store-accent': storefront.accent_color, '--store-bg': storefront.background_color, '--store-surface': storefront.surface_color, '--store-text': storefront.text_color, '--store-button': storefront.button_color } as CSSProperties}>
@@ -1136,7 +1168,7 @@ export function App() {
           <MarketingCampaignBuilder lang={lang} products={products.filter((product) => product.active !== false).map(({ id, name, category }) => ({ id, name, category }))} busy={busy} onGenerate={generateMarketingCampaign} />
           <MarketingCampaignWorkspace lang={lang} campaigns={marketingCampaigns} assets={marketingAssets} products={products.filter((product) => product.active !== false).map(({ id, name, category }) => ({ id, name, category }))} busy={busy} imageLinks={privateFileLinks} imageGeneratingId={imageGeneratingId} onViewImage={(path) => void prepareMarketingImageLink(path)} onCampaign={changeMarketingCampaign} onSavePost={saveMarketingDraft} onStatus={setMarketingStatus} onImage={generatePostImage} onUpload={uploadMarketingPostImage} onDuplicate={duplicateMarketingPost} onDelete={deleteMarketingPost} onDeleteAll={deletePreviousCampaignDrafts} onAddPost={addMarketingPost} />
         </div>}
-        {tab === 'ai' && isManager && <section className="card ai-chat"><div className="ai-history" aria-live="polite">{aiMessages.length === 0 ? <p className="ai-welcome">{t.aiWelcome}</p> : aiMessages.map((message, index) => <article className={`ai-message ${message.role}`} key={`${message.role}-${index}`}><small>{message.role === 'assistant' ? 'HERMES' : (lang === 'ar' ? 'أنت' : 'You')}</small><p>{message.content}</p></article>)}</div><form className="ai-composer" onSubmit={sendAiMessage}><textarea maxLength={4000} rows={3} value={aiInput} onChange={(event) => setAiInput(event.target.value)} placeholder={t.aiPlaceholder} /><button className="primary" disabled={busy || !aiInput.trim()}>{busy ? t.loading : t.aiSend}</button></form></section>}
+        {tab === 'ai' && isManager && <section className="card ai-chat"><div className="ai-history" aria-live="polite">{aiMessages.length === 0 ? <p className="ai-welcome">{t.aiWelcome}</p> : aiMessages.map((message, index) => { const proposal = message.role === 'assistant' ? /I CONFIRM THIS CHANGE\s+([0-9a-f-]{36})/i.exec(message.content) : null; const confirmed = proposal && aiMessages.slice(index + 1).some((item) => item.role === 'user' && item.content.trim() === `I CONFIRM THIS CHANGE ${proposal[1]}`); return <article className={`ai-message ${message.role}`} key={`${message.role}-${index}`}><small>{message.role === 'assistant' ? 'HERMES' : (lang === 'ar' ? 'أنت' : 'You')}</small><p>{message.content}</p>{proposal && !confirmed && index === aiMessages.length - 1 && <button className="primary compact ai-confirm-action" disabled={busy} onClick={() => void submitAiContent(`I CONFIRM THIS CHANGE ${proposal[1]}`)}>{lang === 'ar' ? 'تأكيد وتنفيذ' : 'Confirm & execute'}</button>}</article>; })}</div><form className="ai-composer" onSubmit={sendAiMessage}><textarea maxLength={4000} rows={3} value={aiInput} onChange={(event) => setAiInput(event.target.value)} placeholder={t.aiPlaceholder} /><button className="primary" disabled={busy || !aiInput.trim()}>{busy ? t.loading : t.aiSend}</button></form></section>}
         <footer className="footer"><span>INKORA · EGP · {new Date().getFullYear()}</span><span>{isStaff ? 'OPERATIONS CONSOLE' : 'CUSTOMER PORTAL'}</span></footer>
       </section>
     </div>

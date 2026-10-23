@@ -706,6 +706,12 @@ export class SupabaseGateway implements PricingRepository, AuthGateway {
     return await this.rpc<boolean>('approve_hermes_action_proposal', { p_id: id, p_manager_id: managerId });
   }
 
+  async getHermesActionProposal(id: string, managerId: string): Promise<{ action_name: string; arguments: Record<string, unknown> } | null> {
+    const query = new URLSearchParams({ id: `eq.${id}`, manager_id: `eq.${managerId}`, select: 'action_name,arguments', limit: '1' });
+    const rows = await this.rest<Array<{ action_name: string; arguments: Record<string, unknown> }>>(`hermes_action_proposals?${query}`);
+    return rows[0] ?? null;
+  }
+
   async claimHermesActionProposal(input: { id: string; managerId: string; action: string; arguments: Record<string, unknown> }): Promise<boolean> {
     return await this.rpc<boolean>('claim_hermes_action_proposal', {
       p_id: input.id, p_manager_id: input.managerId, p_action_name: input.action, p_arguments: input.arguments

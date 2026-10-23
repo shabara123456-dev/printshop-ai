@@ -200,6 +200,38 @@ server.registerTool('prepare_storefront_update', {
   catch (error) { return failed(error); }
 });
 
+const campaignPost = z.object({
+  caption: z.string().trim().min(1).max(3000),
+  hashtags: z.array(z.string().trim().min(1).max(80)).max(8).default([]),
+  platform: z.enum(['instagram', 'facebook', 'linkedin', 'x', 'general']),
+  product_id: z.string().uuid().nullable().optional(),
+  theme: z.enum(['product_showcase', 'promotion', 'educational', 'seasonal', 'brand', 'engagement', 'new_product']).default('product_showcase')
+});
+
+server.registerTool('create_marketing_campaign', {
+  title: 'Prepare a marketing campaign for manager approval',
+  description: 'Create a real INKORA marketing campaign with individual caption drafts. Generate the requested number of distinct captions and hashtags, and populate each post with its platform, product, and theme. Use current Cairo month or a future month; schedule dates are assigned deterministically by INKORA. First call creates a pending proposal and returns an action_id. Show the campaign name, post count, platforms, products, month, and that posts will remain drafts for manager review. Ask the manager to use the dashboard Confirm & execute button or reply exactly I CONFIRM THIS CHANGE <action_id>. After confirmation, call this tool again with identical arguments and action_id. Only report the campaign as created when the tool returns campaign_id and asset_ids. Creating it does not publish anything; image generation is available on each post in Marketing.',
+  inputSchema: {
+    name: z.string().trim().min(1).max(160),
+    month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+    objective: z.string().trim().min(1).max(1000),
+    audience: z.string().trim().min(1).max(500),
+    language: z.enum(['en', 'ar']),
+    tone: z.string().trim().min(1).max(300),
+    frequency: z.enum(['daily', 'weekly', 'monthly', 'custom']),
+    preferred_times: z.array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)).min(1).max(5),
+    platforms: z.array(z.enum(['instagram', 'facebook', 'linkedin', 'x', 'general'])).min(1).max(5),
+    product_ids: z.array(z.string().uuid()).max(20),
+    posts: z.array(campaignPost).min(1).max(20),
+    reason,
+    action_id: z.string().uuid().optional()
+  },
+  annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false }
+}, async (args) => {
+  try { return result(await managerApi('create_marketing_campaign', args)); }
+  catch (error) { return failed(error); }
+});
+
 server.registerTool('create_material', {
   title: 'Add a shop material',
   description: 'Prepare a proposal to create a new raw material with zero opening stock. Read the tool response action_id, explain the exact SKU, name, category, unit and reorder settings, then ask the manager to reply exactly: I CONFIRM THIS CHANGE <action_id>. Only in the next authenticated manager dashboard chat, retry this tool with the same arguments and action_id. The standalone Hermes CLI is read-only for writes. Never invent opening stock or cost.',
