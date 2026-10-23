@@ -606,3 +606,38 @@ tbody tr:hover { background: rgba(255, 255, 255, .025); }
 :root[data-inkora-theme="light"] .theme-choice { border-color: #dce2ea; }
 :root[data-inkora-theme="light"] .dark-choice { background: #101215; color: #f1f3f6; }
 :root[data-inkora-theme="light"] .light-choice { background: #f5f7fa; color: #202a38; }
+:root[data-inkora-theme="light"] .paper-back { background: #f3c761; }
+:root[data-inkora-theme="light"] .paper-front { border-color: #e1e5e9; background: #eceef1; color: #17191c; }
+
+/* The dark appearance must not inherit the earlier light UI's pale bubbles,
+   reference panels, or status chips. Product photography is left untouched. */
+:root[data-inkora-theme="dark"] .ai-message { border-color: #30353d; background: #191c22; color: #e8eaf0; }
+:root[data-inkora-theme="dark"] .ai-message.user { border-color: #344760; background: #202b3a; color: #edf3ff; }
+:root[data-inkora-theme="dark"] .quote-result { background: #171a1f; color: #e8eaf0; }
+:root[data-inkora-theme="dark"] .reference-banner { border-color: #3a414b; background: #1a1e24; color: #c6ccd5; }
+:root[data-inkora-theme="dark"] .reference-icon { border-color: #3a414b; background: #242a33; color: #c6d5ef; }
+:root[data-inkora-theme="dark"] .paper-front { border: 1px solid #3c4553; background: #222831; color: #d9e1ee; }
+:root[data-inkora-theme="dark"] .metric-icon, :root[data-inkora-theme="dark"] .metric-icon.mint, :root[data-inkora-theme="dark"] .metric-icon.amber, :root[data-inkora-theme="dark"] .metric-icon.lilac { border: 1px solid #343b46; background: #202630; color: #b9d0f7; }
+:root[data-inkora-theme="dark"] .attention-count, :root[data-inkora-theme="dark"] .reorder-tag { border: 1px solid #4a4029; background: #272319; color: #e5c77e; }
+:root[data-inkora-theme="dark"] .stage-design, :root[data-inkora-theme="dark"] .stage-print, :root[data-inkora-theme="dark"] .stage-finishing, :root[data-inkora-theme="dark"] .stage-quality_check { border-color: #343942; background: #1d2127; color: #c1c8d4; }
+:root[data-inkora-theme="dark"] .status-rejected, :root[data-inkora-theme="dark"] .status-expired { border-color: #4c3034; background: #2b1d20; color: #f09aa0; }
+.storefront-palette-note { align-self: center; }
+
+/* The storefront preview follows its selected palette even if the manager's
+   own application appearance is different. */
+.storefront-preview.theme-light { color-scheme: light; }
+.storefront-preview.theme-dark { color-scheme: dark; }
+.public-store.theme-light { color-scheme: light; }
+.public-store.theme-dark { color-scheme: dark; }
+.storefront-preview.theme-light .preview-label { color: #657184; }
+.storefront-preview.theme-light h3 { color: #202a38; }
+.storefront-preview.theme-light p, .storefront-preview.theme-light .preview-announcement { color: #59677a; }
+.storefront-preview.theme-light .preview-announcement { border-color: #dce2ea; }
+.public-store.theme-light .store-hero-copy p, .public-store.theme-light .store-section-heading p,
+.public-store.theme-light .store-product-info p, .public-store.theme-light .store-product-foot,
+.public-store.theme-light .store-product-foot span:last-child, .public-store.theme-light .store-data-note,
+.public-store.theme-light .store-footer, .public-store.theme-light .public-auth-wrap .auth-copy p { color: #59677a; }
+.public-store.theme-light .store-hero-actions .text-button, .public-store.theme-light .store-product-link { color: #315f9e; }
+.public-store.theme-light .public-store-tabs { border-color: #dce2ea; background: rgba(255,255,255,.94); }
+.public-store.theme-light .public-store-tabs button { color: #59677a; }
+.public-store.theme-light .public-store-tabs button:hover, .public-store.theme-light .public-store-tabs button.selected { border-color: #d6e1f2; background: #eaf0fa; color: #254d83; }

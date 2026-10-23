@@ -20,7 +20,7 @@ export type StorefrontConfig = {
   hero_description_en: string; hero_description_ar: string;
   announcement_en: string; announcement_ar: string;
   accent_color: string; featured_product_ids: string[];
-  theme: 'midnight' | 'paper' | 'studio'; background_color: string; surface_color: string; text_color: string; button_color: string;
+  theme: 'dark' | 'light'; background_color: string; surface_color: string; text_color: string; button_color: string;
   font_family: 'sans' | 'serif'; layout: 'wide' | 'editorial'; hero_image_path: string; logo_path: string; logo_placement: 'left' | 'center' | 'right';
   cta_label_en: string; cta_label_ar: string; featured_categories: string[];
 };
@@ -46,7 +46,7 @@ const defaultStorefrontConfig: StorefrontConfig = {
   hero_description_en: 'Thoughtful print for ambitious brands. Configure a product and follow every production step from our Mansoura shop.',
   hero_description_ar: 'طباعة مخصصة، تصميم مدروس، ومتابعة واضحة من أول طلب حتى التسليم.',
   announcement_en: '', announcement_ar: '', accent_color: '#6f9fee', featured_product_ids: [],
-  theme: 'midnight', background_color: '#101114', surface_color: '#191b20', text_color: '#f5f5f5', button_color: '#6f9fee',
+  theme: 'dark', background_color: '#101114', surface_color: '#191b20', text_color: '#f5f5f5', button_color: '#6f9fee',
   font_family: 'sans', layout: 'wide', hero_image_path: '', logo_path: '', logo_placement: 'left', cta_label_en: 'Explore the store', cta_label_ar: 'اكتشف المتجر', featured_categories: []
 };
 
@@ -309,11 +309,13 @@ function storefrontConfig(value: unknown): StorefrontConfig {
     if (typeof candidate !== 'string' || !values.includes(candidate as T)) throw new AppError('INVALID_REQUEST', 400, `${field} has an unsupported value.`);
     return candidate as T;
   };
-  const theme = choice('theme', ['midnight','paper','studio'] as const, 'midnight');
+  const requestedTheme = choice('theme', ['dark','light','midnight','paper','studio'] as const, 'dark');
+  // Map existing saved theme names during migration, but expose only the two
+  // supported storefront choices going forward.
+  const theme: StorefrontConfig['theme'] = requestedTheme === 'light' || requestedTheme === 'paper' ? 'light' : 'dark';
   const palette = {
-    midnight: { background_color: '#101114', surface_color: '#191b20', text_color: '#f5f5f5', accent_color: '#6f9fee', button_color: '#6f9fee' },
-    paper: { background_color: '#f3f0e8', surface_color: '#fffdf8', text_color: '#21211f', accent_color: '#9a6549', button_color: '#252522' },
-    studio: { background_color: '#171c1a', surface_color: '#222a26', text_color: '#f2f0e8', accent_color: '#9ab991', button_color: '#9ab991' }
+    dark: { background_color: '#101114', surface_color: '#191b20', text_color: '#f5f5f5', accent_color: '#6f9fee', button_color: '#6f9fee' },
+    light: { background_color: '#f3f5f8', surface_color: '#ffffff', text_color: '#202a38', accent_color: '#315f9e', button_color: '#315f9e' }
   }[theme];
   const assetPath = (field: string) => {
     const candidate = row[field] ?? '';

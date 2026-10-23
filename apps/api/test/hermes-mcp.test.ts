@@ -30,7 +30,7 @@ test('PrintShop MCP server supports stateless Web-standard HTTP discovery', asyn
   assert.equal(toolsResponse.status, 200);
   const toolBody = await toolsResponse.json() as { result?: { tools?: Array<{ name: string }> } };
   const names = toolBody.result?.tools?.map((tool) => tool.name) ?? [];
-  assert.equal(names.length, 19);
+  assert.equal(names.length, 20);
   assert.ok(names.includes('calculate_quote'));
   assert.ok(names.includes('prepare_storefront_update'));
   assert.ok(names.includes('create_product_draft'));

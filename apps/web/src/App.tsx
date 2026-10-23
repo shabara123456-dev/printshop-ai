@@ -39,15 +39,14 @@ const defaultStorefront: StorefrontConfig = {
   hero_description_en: 'Thoughtful print for ambitious brands. Configure a product and follow every production step from our Mansoura shop.',
   hero_description_ar: 'طباعة مخصصة، تصميم مدروس، ومتابعة واضحة من أول طلب حتى التسليم.',
   announcement_en: '', announcement_ar: '', accent_color: '#6f9fee', featured_product_ids: [],
-  theme: 'midnight', background_color: '#101114', surface_color: '#191b20', text_color: '#f5f5f5', button_color: '#6f9fee',
+  theme: 'dark', background_color: '#101114', surface_color: '#191b20', text_color: '#f5f5f5', button_color: '#6f9fee',
   font_family: 'sans', layout: 'wide', hero_image_path: '', logo_path: '', logo_placement: 'left',
   cta_label_en: 'Explore the store', cta_label_ar: 'اكتشف المتجر', featured_categories: []
 };
 
 const storefrontPalettes: Record<StorefrontConfig['theme'], Pick<StorefrontConfig, 'background_color' | 'surface_color' | 'text_color' | 'accent_color' | 'button_color'>> = {
-  midnight: { background_color: '#101114', surface_color: '#191b20', text_color: '#f5f5f5', accent_color: '#6f9fee', button_color: '#6f9fee' },
-  paper: { background_color: '#f3f0e8', surface_color: '#fffdf8', text_color: '#21211f', accent_color: '#9a6549', button_color: '#252522' },
-  studio: { background_color: '#171c1a', surface_color: '#222a26', text_color: '#f2f0e8', accent_color: '#9ab991', button_color: '#9ab991' }
+  dark: { background_color: '#101114', surface_color: '#191b20', text_color: '#f5f5f5', accent_color: '#6f9fee', button_color: '#6f9fee' },
+  light: { background_color: '#f3f5f8', surface_color: '#ffffff', text_color: '#202a38', accent_color: '#315f9e', button_color: '#315f9e' }
 };
 
 function storeAssetUrl(path: string | null | undefined): string {
@@ -1093,6 +1092,8 @@ export function App() {
     finally { setBusy(false); }
   }
 
+  const publicStoreTheme: StorefrontConfig['theme'] = String(storefront.theme) === 'light' || String(storefront.theme) === 'paper' ? 'light' : 'dark';
+  const publicStorePalette = storefrontPalettes[publicStoreTheme];
   const shell = <>
       <header className={`topbar storefront-logo-${storefront.logo_placement ?? 'left'}`}>
       <a className="brand" href="#home"><span className="brand-mark">{storefront.logo_path ? <img src={storeAssetUrl(storefront.logo_path)} alt="" /> : <img src="/inkora-mark.svg" alt="" />}</span><span>{storefront.store_name || t.brand}<small>{storefront.tagline || t.tagline}</small></span></a>
@@ -1101,7 +1102,7 @@ export function App() {
     {themePromptOpen && <div className="theme-chooser-backdrop" role="presentation"><section className="theme-chooser" role="dialog" aria-modal="true" aria-labelledby="theme-chooser-title"><span className="eyebrow">INKORA / APPEARANCE</span><h2 id="theme-chooser-title">{lang === 'ar' ? 'اختر مظهر الموقع' : 'Choose your appearance'}</h2><p>{lang === 'ar' ? 'يمكنك تغييره لاحقاً من الشريط العلوي.' : 'You can change this any time from the top bar.'}</p><div className="theme-chooser-options"><button className="theme-choice dark-choice" onClick={() => selectUiTheme('dark')}><span className="theme-swatch"/>Dark<span>Easy on the eyes</span></button><button className="theme-choice light-choice" onClick={() => selectUiTheme('light')}><span className="theme-swatch"/>Light<span>Bright and clear</span></button></div></section></div>}
   </>;
 
-  if (!session) return <main dir={lang === 'ar' ? 'rtl' : 'ltr'} className={`public-store theme-${storefront.theme ?? 'midnight'} layout-${storefront.layout ?? 'wide'} font-${storefront.font_family ?? 'sans'}`} style={{ '--store-accent': storefrontPalettes[storefront.theme ?? 'midnight'].accent_color, '--store-bg': storefrontPalettes[storefront.theme ?? 'midnight'].background_color, '--store-surface': storefrontPalettes[storefront.theme ?? 'midnight'].surface_color, '--store-text': storefrontPalettes[storefront.theme ?? 'midnight'].text_color, '--store-button': storefrontPalettes[storefront.theme ?? 'midnight'].button_color } as CSSProperties}>
+  if (!session) return <main dir={lang === 'ar' ? 'rtl' : 'ltr'} className={`public-store theme-${publicStoreTheme} layout-${storefront.layout ?? 'wide'} font-${storefront.font_family ?? 'sans'}`} style={{ '--store-accent': publicStorePalette.accent_color, '--store-bg': publicStorePalette.background_color, '--store-surface': publicStorePalette.surface_color, '--store-text': publicStorePalette.text_color, '--store-button': publicStorePalette.button_color } as CSSProperties}>
     {shell}
     <section className={`store-hero ${storefront.hero_image_path ? 'has-manager-hero' : ''}`} id="home"><div className="store-hero-copy">{(lang === 'ar' ? storefront.announcement_ar : storefront.announcement_en) && <div className="store-announcement">{lang === 'ar' ? storefront.announcement_ar : storefront.announcement_en}</div>}<span className="eyebrow">{storefront.hero_eyebrow}</span><h1>{lang === 'ar' ? storefront.hero_title_ar : storefront.hero_title_en}</h1><p>{lang === 'ar' ? storefront.hero_description_ar : storefront.hero_description_en}</p><div className="store-hero-actions"><button className="primary" onClick={exploreCollection}>{lang === 'ar' ? storefront.cta_label_ar : storefront.cta_label_en} <span>↘</span></button><a className="text-button" href="#account">{lang === 'ar' ? 'دخول العملاء' : 'Customer sign in'} ↗</a></div><div className="store-proof"><span><b>01</b> {lang === 'ar' ? 'تسعير واضح' : 'Verified pricing'}</span><span><b>02</b> {lang === 'ar' ? 'تصميم وطباعة' : 'Design & print'}</span><span><b>03</b> {lang === 'ar' ? 'متابعة الإنتاج' : 'Order tracking'}</span></div></div><div className="store-hero-art">{storefront.hero_image_path ? <img className="manager-hero-image" src={storeAssetUrl(storefront.hero_image_path)} alt={storefront.store_name} /> : <ProductImage category="business_cards" label="INKORA identity cards"/>}<div className="hero-orbit-label">IDEAS, MADE PHYSICAL<br/><span>PRINTED IN MANSOURA</span></div></div></section>
     {tab === 'catalog' && <section className="store-catalog" id="store-catalog"><div className="store-section-heading"><div><span className="eyebrow">THE INKORA COLLECTION</span><h2>{lang === 'ar' ? 'منتجات لكل فكرة.' : 'Print for every kind of idea.'}</h2><p>{lang === 'ar' ? 'اختر منتجاً لعرض خياراته وإعداد طلبك.' : 'Choose a product to open its options and configure your order.'}</p></div><span className="count">{storefrontProducts(products, storefront).length.toString().padStart(2, '0')} ITEMS</span></div>

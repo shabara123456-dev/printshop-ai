@@ -4,7 +4,7 @@ import type { ChangeEvent, CSSProperties, FormEvent } from 'react';
 export type StorefrontConfig = {
   store_name: string; tagline: string; hero_eyebrow: string; hero_title_en: string; hero_title_ar: string;
   hero_description_en: string; hero_description_ar: string; announcement_en: string; announcement_ar: string;
-  accent_color: string; featured_product_ids: string[]; theme: 'midnight' | 'paper' | 'studio';
+  accent_color: string; featured_product_ids: string[]; theme: 'dark' | 'light';
   background_color: string; surface_color: string; text_color: string; button_color: string;
   font_family: 'sans' | 'serif'; layout: 'wide' | 'editorial'; hero_image_path: string; logo_path: string;
   logo_placement: 'left' | 'center' | 'right'; cta_label_en: string; cta_label_ar: string; featured_categories: string[];
@@ -17,16 +17,15 @@ const emptyConfig: StorefrontConfig = {
   hero_title_en: 'Make your next idea tangible.', hero_title_ar: 'أفكارك، مطبوعة بعناية.',
   hero_description_en: 'Thoughtful print for ambitious brands. Configure a product and follow every production step from our Mansoura shop.',
   hero_description_ar: 'طباعة مخصصة، تصميم مدروس، ومتابعة واضحة من أول طلب حتى التسليم.',
-  announcement_en: '', announcement_ar: '', accent_color: '#6f9fee', featured_product_ids: [], theme: 'midnight',
+  announcement_en: '', announcement_ar: '', accent_color: '#6f9fee', featured_product_ids: [], theme: 'dark',
   background_color: '#101114', surface_color: '#191b20', text_color: '#f5f5f5', button_color: '#6f9fee',
   font_family: 'sans', layout: 'wide', hero_image_path: '', logo_path: '', logo_placement: 'left',
   cta_label_en: 'Explore the store', cta_label_ar: 'اكتشف المتجر', featured_categories: []
 };
 
 const themes: Record<StorefrontConfig['theme'], Pick<StorefrontConfig, 'background_color' | 'surface_color' | 'text_color' | 'accent_color' | 'button_color'>> = {
-  midnight: { background_color: '#101114', surface_color: '#191b20', text_color: '#f5f5f5', accent_color: '#6f9fee', button_color: '#6f9fee' },
-  paper: { background_color: '#f3f0e8', surface_color: '#fffdf8', text_color: '#21211f', accent_color: '#9a6549', button_color: '#252522' },
-  studio: { background_color: '#171c1a', surface_color: '#222a26', text_color: '#f2f0e8', accent_color: '#9ab991', button_color: '#9ab991' }
+  dark: { background_color: '#101114', surface_color: '#191b20', text_color: '#f5f5f5', accent_color: '#6f9fee', button_color: '#6f9fee' },
+  light: { background_color: '#f3f5f8', surface_color: '#ffffff', text_color: '#202a38', accent_color: '#315f9e', button_color: '#315f9e' }
 };
 
 function publicAsset(path: string): string {
@@ -43,7 +42,8 @@ export function StorefrontManagementPage({ lang, published, revisions, products,
 }) {
   const ar = lang === 'ar';
   const normalizeTheme = (value: Partial<StorefrontConfig>): StorefrontConfig => {
-    const theme = value.theme ?? emptyConfig.theme;
+    const legacyTheme = String(value.theme ?? emptyConfig.theme);
+    const theme: StorefrontConfig['theme'] = legacyTheme === 'light' || legacyTheme === 'paper' ? 'light' : 'dark';
     return { ...emptyConfig, ...value, ...themes[theme], theme };
   };
   const [config, setConfig] = useState<StorefrontConfig>(() => normalizeTheme(published?.config ?? {}));
@@ -79,7 +79,7 @@ export function StorefrontManagementPage({ lang, published, revisions, products,
         <label>{ar ? 'صورة الواجهة الرئيسية' : 'Hero image'}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy || uploading} onChange={(event) => void upload('hero_image_path', event.currentTarget.files?.[0])} />{config.hero_image_path && <small>{config.hero_image_path}</small>}</label>
         <div className="form-row"><label>{ar ? 'إعلان المتجر · EN' : 'Announcement · English'}<input maxLength={240} value={config.announcement_en} onChange={update('announcement_en')} /></label><label>الإعلان · العربية<input maxLength={240} dir="rtl" value={config.announcement_ar} onChange={update('announcement_ar')} /></label></div>
         <div className="eyebrow">THEME / LAYOUT</div>
-        <div className="form-row"><label>{ar ? 'القالب' : 'Theme'}<select value={config.theme} onChange={(event) => { const theme = event.target.value as StorefrontConfig['theme']; setConfig((current) => ({ ...current, theme, ...themes[theme] })); }}><option value="midnight">Midnight · Premium dark</option><option value="paper">Paper · Editorial light</option><option value="studio">Studio · Natural green</option></select></label><label>{ar ? 'التخطيط' : 'Layout'}<select value={config.layout} onChange={update('layout')}><option value="wide">{ar ? 'عريض' : 'Wide'}</option><option value="editorial">{ar ? 'تحريري' : 'Editorial'}</option></select></label></div>
+        <div className="form-row"><label>{ar ? 'مظهر المتجر' : 'Store appearance'}<select value={config.theme} onChange={(event) => { const theme = event.target.value as StorefrontConfig['theme']; setConfig((current) => ({ ...current, theme, ...themes[theme] })); }}><option value="dark">{ar ? 'داكن' : 'Dark'}</option><option value="light">{ar ? 'فاتح' : 'Light'}</option></select></label><label>{ar ? 'التخطيط' : 'Layout'}<select value={config.layout} onChange={update('layout')}><option value="wide">{ar ? 'عريض' : 'Wide'}</option><option value="editorial">{ar ? 'تحريري' : 'Editorial'}</option></select></label></div>
         <div className="form-row"><label>{ar ? 'الخط' : 'Typography'}<select value={config.font_family} onChange={update('font_family')}><option value="sans">Sans</option><option value="serif">Serif</option></select></label><p className="subtext storefront-palette-note">{ar ? 'الألوان مرتبطة بالقالب لضمان وضوح النصوص والأزرار.' : 'Colors are locked to the selected theme so text and buttons stay readable.'}</p></div>
         <div className="form-row"><label>{ar ? 'المنتجات المميزة' : 'Featured products'}<select multiple value={config.featured_product_ids} onChange={(event) => setConfig((current) => ({ ...current, featured_product_ids: Array.from(event.currentTarget.selectedOptions, (option) => option.value) }))}>{products.map((product) => <option value={product.id} key={product.id}>{product.name}{product.sku ? ` · ${product.sku}` : ''}</option>)}</select><small className="subtext">{ar ? 'حدد حتى 12 منتجاً.' : 'Choose up to 12 products.'}</small></label><label>{ar ? 'الفئات المميزة' : 'Featured categories'}<select multiple value={config.featured_categories} onChange={(event) => setConfig((current) => ({ ...current, featured_categories: Array.from(event.currentTarget.selectedOptions, (option) => option.value) }))}>{categories.map((category) => <option value={category} key={category}>{category.replaceAll('_',' ')}</option>)}</select></label></div>
         <button className="primary" disabled={busy || uploading}>{busy || uploading ? (ar ? 'جارٍ الحفظ…' : 'Saving…') : (ar ? 'حفظ المسودة' : 'Save draft')}</button>

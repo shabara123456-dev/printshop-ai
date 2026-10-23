@@ -452,7 +452,7 @@ test('price rule create and end operations require manager role, a reason, and v
   assert.equal(calls.length, 1);
   assert.equal(calls[0][0], 'manager-token');
   assert.equal(calls[0][2], 'Owner approved selling price');
-  assert.equal((calls[0][1] as Record<string, unknown>).design_fee, '50.00', 'new manager price rules default to the approved EGP 50 design service');
+  assert.equal((calls[0][1] as Record<string, unknown>).design_fee, '0.00', 'design service remains opt-in for each product price rule');
   const ruleId = '30000000-0000-4000-8000-000000000004';
   const ended = await fetch(base + '/' + ruleId, { method: 'PATCH', headers: { authorization: 'Bearer manager-token', 'content-type': 'application/json' }, body: JSON.stringify({ active_to: '2026-12-31', reason: 'Replacing with a revised shop price' }) });
   assert.equal(ended.status, 200);
@@ -833,8 +833,8 @@ test('Hermes storefront action creates a review draft but does not publish it', 
     { role: 'user', content: `I CONFIRM THIS CHANGE ${firstBody.action_id}` }
   ] }) });
   assert.equal(confirmed.status, 200);
-  assert.equal((savedDraft as Record<string, unknown>).accent_color, config.accent_color);
-  assert.equal((savedDraft as Record<string, unknown>).theme, 'midnight');
+  assert.equal((savedDraft as Record<string, unknown>).accent_color, '#6f9fee');
+  assert.equal((savedDraft as Record<string, unknown>).theme, 'dark');
   assert.equal((savedDraft as Record<string, unknown>).layout, 'wide');
   assert.equal(published, false, 'Hermes must not publish the storefront configuration');
   assert.equal(proposals.get(firstBody.action_id)?.status, 'completed');
